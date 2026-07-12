@@ -24,7 +24,6 @@ import { Footer } from '@/components/layout/components/footer'
 import { RichContent } from '@/components/rich-content'
 import { useTheme } from '@/context/theme-provider'
 import { isLikelyHtml } from '@/lib/content-format'
-import { useAuthStore } from '@/stores/auth-store'
 
 import { EclipseHalo, Features, Hero } from './components'
 import { useHomePageContent } from './hooks'
@@ -33,8 +32,6 @@ export function Home() {
   const { i18n, t } = useTranslation()
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const { resolvedTheme } = useTheme()
-  const { auth } = useAuthStore()
-  const isAuthenticated = !!auth.user
   const { content, isLoaded, isUrl } = useHomePageContent()
 
   const syncIframePreferences = useCallback(() => {
@@ -127,7 +124,7 @@ export function Home() {
         style={{ fontFamily: "'M PLUS 1', var(--font-sans)" }}
       >
         <EclipseHalo />
-        <Hero isAuthenticated={isAuthenticated} />
+        <Hero />
         <Features />
         <Footer className='border-t-0 bg-transparent' />
       </div>

@@ -16,20 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Link } from '@tanstack/react-router'
-import { ArrowRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-
-import { Button } from '@/components/ui/button'
 
 import { useTypingEffect } from '../../hooks/use-typing-effect'
 
-interface HeroProps {
-  className?: string
-  isAuthenticated?: boolean
-}
-
-export function Hero(props: HeroProps) {
+export function Hero() {
   const { t } = useTranslation()
 
   const typedText = useTypingEffect({
@@ -77,20 +68,6 @@ export function Hero(props: HeroProps) {
             `}</style>
           </h1>
         </div>
-
-        {/* 按钮 */}
-        {props.isAuthenticated && (
-          <div className='mt-6 flex justify-center'>
-            <Button
-              size='sm'
-              className='group rounded-lg border border-white/15 bg-white/10 px-4 text-sm font-medium text-white backdrop-blur-md hover:border-white/30 hover:bg-white/15'
-              render={<Link to='/dashboard' />}
-            >
-              {t('Go to Dashboard')}
-              <ArrowRight className='ml-1.5 size-3.5 transition-transform duration-200 group-hover:translate-x-1' />
-            </Button>
-          </div>
-        )}
       </div>
     </section>
   )
