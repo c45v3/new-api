@@ -51,6 +51,7 @@ import {
   getParamOverrideActionLabel,
   parseAuditLine,
   decodeBillingExprB64,
+  getDisplayedInputTokens,
   getTieredBillingSummary,
   hasAnyCacheTokens,
   isViolationFeeLog,
@@ -399,7 +400,10 @@ function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
 
   const rows: Array<{ label: string; value: string }> = []
 
-  rows.push({ label: t('Input Tokens'), value: promptTokens.toLocaleString() })
+  rows.push({
+    label: t('Input Tokens'),
+    value: getDisplayedInputTokens(promptTokens, other).toLocaleString(),
+  })
   rows.push({
     label: t('Output Tokens'),
     value: completionTokens.toLocaleString(),

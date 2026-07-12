@@ -250,6 +250,23 @@ export function hasAnyCacheTokens(
   )
 }
 
+export function getDisplayedInputTokens(
+  promptTokens: number,
+  other: LogOtherData | null | undefined
+): number {
+  if (other?.claude === true) return promptTokens
+
+  const cacheReadTokens = other?.cache_tokens || 0
+  const cacheWrite5m = other?.cache_creation_tokens_5m || 0
+  const cacheWrite1h = other?.cache_creation_tokens_1h || 0
+  const cacheWriteTokens =
+    cacheWrite5m > 0 || cacheWrite1h > 0
+      ? cacheWrite5m + cacheWrite1h
+      : other?.cache_creation_tokens || 0
+
+  return Math.max(0, promptTokens - cacheReadTokens - cacheWriteTokens)
+}
+
 export function getTieredBillingSummary(
   other: LogOtherData | null
 ): TieredBillingSummary | null {

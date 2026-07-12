@@ -686,6 +686,7 @@
     "Cache pricing": "Cache pricing",
     "Cache ratio": "Cache ratio",
     "Cache Read": "Cache Read",
+    "Cached input has been excluded": "Cached input has been excluded",
     "Cache read price": "Cache read price",
     "Cache repeated prompt prefixes for cheaper, faster reuse": "Cache repeated prompt prefixes for cheaper, faster reuse",
     "Cache write": "Cache write",
