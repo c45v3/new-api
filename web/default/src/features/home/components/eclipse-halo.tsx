@@ -133,7 +133,7 @@ export function EclipseHalo() {
     const animate = (time: number) => {
       const delta = Math.min(time - previousTime, 100)
       previousTime = time
-      glowRotation += delta * 0.000504
+      glowRotation += delta * (TAU / 18000)
       render()
       animationFrame = requestAnimationFrame(animate)
     }
