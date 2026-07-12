@@ -39,7 +39,6 @@ export function useHomePageContent(): HomePageContentResult {
     let mounted = true
 
     const loadContent = async () => {
-      // Load from localStorage first for immediate display
       const cached = localStorage.getItem(STORAGE_KEY)
       if (cached && mounted) {
         setContent(cached)
@@ -55,7 +54,6 @@ export function useHomePageContent(): HomePageContentResult {
           setContent(data)
           localStorage.setItem(STORAGE_KEY, data)
         } else {
-          // Clear content if API returns empty
           setContent('')
           localStorage.removeItem(STORAGE_KEY)
         }

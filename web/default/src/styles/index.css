@@ -30,6 +30,14 @@ For commercial licensing, please contact support@quantumnous.com
 @import './theme.css';
 @import './theme-presets.css';
 
+/* M PLUS 1 — display font for the public home page hero. Latin subset only. */
+@font-face {
+  font-family: 'M PLUS 1';
+  src: url('../assets/fonts/MPLUS1-Latin.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 /* Shiki dual themes: token colors follow dark theme (pre background stays `bg-background` on the block) */
 @layer components {
   .shiki span {
