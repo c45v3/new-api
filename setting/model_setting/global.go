@@ -1,9 +1,11 @@
 package model_setting
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/config"
 )
 
@@ -33,14 +35,16 @@ func (p ChatCompletionsToResponsesPolicy) IsChannelEnabled(channelID int, channe
 }
 
 type GlobalSettings struct {
-	PassThroughRequestEnabled        bool                             `json:"pass_through_request_enabled"`
-	ThinkingModelBlacklist           []string                         `json:"thinking_model_blacklist"`
-	ChatCompletionsToResponsesPolicy ChatCompletionsToResponsesPolicy `json:"chat_completions_to_responses_policy"`
+	PassThroughRequestEnabled          bool                             `json:"pass_through_request_enabled"`
+	PassThroughRequestExcludedChannels []int                          `json:"pass_through_request_excluded_channels"`
+	ThinkingModelBlacklist             []string                         `json:"thinking_model_blacklist"`
+	ChatCompletionsToResponsesPolicy   ChatCompletionsToResponsesPolicy `json:"chat_completions_to_responses_policy"`
 }
 
 // 默认配置
 var defaultOpenaiSettings = GlobalSettings{
-	PassThroughRequestEnabled: false,
+	PassThroughRequestEnabled:          false,
+	PassThroughRequestExcludedChannels: []int{},
 	ThinkingModelBlacklist: []string{
 		"moonshotai/kimi-k2-thinking",
 		"kimi-k2-thinking",
@@ -61,6 +65,40 @@ func init() {
 
 func GetGlobalSettings() *GlobalSettings {
 	return &globalSettings
+}
+
+// IsPassThroughExcluded reports whether the global pass-through setting is
+// explicitly disabled for a channel. Channel IDs are used because channel
+// settings are persisted per channel and retries can change channel type.
+func (s *GlobalSettings) IsPassThroughExcluded(channelID int) bool {
+	if s == nil || channelID <= 0 {
+		return false
+	}
+	return slices.Contains(s.PassThroughRequestExcludedChannels, channelID)
+}
+
+// IsPassThroughEnabled resolves the global request pass-through setting for a
+// channel. An excluded channel always wins over its own channel setting.
+func (s *GlobalSettings) IsPassThroughEnabled(channelID int, channelSettingEnabled bool) bool {
+	if s != nil && s.IsPassThroughExcluded(channelID) {
+		return false
+	}
+	return (s != nil && s.PassThroughRequestEnabled) || channelSettingEnabled
+}
+
+// ValidatePassThroughRequestExcludedChannels validates the JSON persisted by
+// the option API. Each channel ID must be a positive integer.
+func ValidatePassThroughRequestExcludedChannels(value string) error {
+	var channelIDs []int
+	if err := common.UnmarshalJsonStr(value, &channelIDs); err != nil || channelIDs == nil {
+		return fmt.Errorf("pass-through request excluded channels must be a JSON array of positive channel IDs")
+	}
+	for _, channelID := range channelIDs {
+		if channelID <= 0 {
+			return fmt.Errorf("pass-through request excluded channels must be a JSON array of positive channel IDs")
+		}
+	}
+	return nil
 }
 
 // ShouldPreserveThinkingSuffix 判断模型是否配置为保留 thinking/-nothinking/-low/-high/-medium 后缀

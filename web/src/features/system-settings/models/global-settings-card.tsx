@@ -55,6 +55,8 @@ const thinkingBlacklistExample = JSON.stringify(
   2
 )
 
+const passThroughExcludedChannelsExample = JSON.stringify([1, 2], null, 2)
+
 const chatToResponsesPolicyExample = JSON.stringify(
   {
     enabled: true,
@@ -87,9 +89,30 @@ const jsonString = z.string().refine((value) => {
   }
 }, 'Invalid JSON format')
 
+const passThroughExcludedChannelsJsonString = z.string().refine((value) => {
+  const trimmed = value.trim()
+  if (!trimmed) return true
+  try {
+    const parsed: unknown = JSON.parse(trimmed)
+    return (
+      Array.isArray(parsed) &&
+      parsed.every(
+        (channelID) =>
+          typeof channelID === 'number' &&
+          Number.isSafeInteger(channelID) &&
+          channelID > 0
+      )
+    )
+  } catch {
+    return false
+  }
+}, 'Invalid JSON format or values out of allowed range')
+
 const schema = z.object({
   global: z.object({
     pass_through_request_enabled: z.boolean(),
+    pass_through_request_excluded_channels:
+      passThroughExcludedChannelsJsonString,
     thinking_model_blacklist: jsonString,
     chat_completions_to_responses_policy: jsonString,
   }),
@@ -104,6 +127,7 @@ type GlobalModelSettingsFormInput = z.input<typeof schema>
 
 type FlatGlobalModelSettings = {
   'global.pass_through_request_enabled': boolean
+  'global.pass_through_request_excluded_channels': string
   'global.thinking_model_blacklist': string
   'global.chat_completions_to_responses_policy': string
   'general_setting.ping_interval_enabled': boolean
@@ -115,6 +139,10 @@ const flattenGlobalValues = (
 ): FlatGlobalModelSettings => ({
   'global.pass_through_request_enabled':
     values.global.pass_through_request_enabled,
+  'global.pass_through_request_excluded_channels': normalizeJsonText(
+    values.global.pass_through_request_excluded_channels,
+    '[]'
+  ),
   'global.thinking_model_blacklist': normalizeJsonText(
     values.global.thinking_model_blacklist,
     '[]'
@@ -206,6 +234,35 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                   />
                 </FormControl>
               </SettingsSwitchItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='global.pass_through_request_excluded_channels'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>
+                  {t('Excluded request passthrough channels')}
+                </FormLabel>
+                <FormControl>
+                  <JsonCodeEditor
+                    value={field.value}
+                    onChange={(value) => field.onChange(value)}
+                    name={field.name}
+                    onBlur={field.onBlur}
+                    textareaRef={field.ref}
+                    placeholder={`${t('Example:')}\n${passThroughExcludedChannelsExample}`}
+                    heightClassName='h-24 min-h-24 max-h-24'
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Requests for these channel IDs bypass request passthrough, even when enabled globally or on the channel.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
             )}
           />
 

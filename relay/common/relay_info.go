@@ -234,7 +234,7 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	// Channel identity feeds the converter options snapshot (e.g.
 	// OpenRouterDialect); drop the cache so a cross-channel retry rebuilds it.
 	info.convOptions = nil
-	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || channelMeta.ChannelSetting.PassThroughBodyEnabled {
+	if info.IsPassThroughEnabled() {
 		info.ReasoningEffort = ""
 	} else {
 		info.ReasoningEffort = reasoningEffortFromRequest(info.Request)
@@ -762,6 +762,18 @@ func (info *RelayInfo) GetChannelType() int {
 	return info.ChannelType
 }
 
+// IsPassThroughEnabled resolves request body pass-through for the selected
+// channel. Global exclusions take precedence over the channel-level setting.
+func (info *RelayInfo) IsPassThroughEnabled() bool {
+	channelID := 0
+	channelSettingEnabled := false
+	if info != nil && info.ChannelMeta != nil {
+		channelID = info.ChannelId
+		channelSettingEnabled = info.ChannelSetting.PassThroughBodyEnabled
+	}
+	return model_setting.GetGlobalSettings().IsPassThroughEnabled(channelID, channelSettingEnabled)
+}
+
 func (info *RelayInfo) GetIsStream() bool {
 	return info != nil && info.IsStream
 }
@@ -973,8 +985,12 @@ func FailTaskInfo(reason string) *TaskInfo {
 // store: 数据存储授权字段，涉及用户隐私（仅 OpenAI、Responses API 支持，默认允许透传，禁用后可能导致 Codex 无法使用）
 // safety_identifier: 安全标识符，用于向 OpenAI 报告违规用户（仅 OpenAI 支持，涉及用户隐私）
 // stream_options.include_obfuscation: 响应流混淆控制字段（仅 OpenAI Responses API 支持）
-func RemoveDisabledFields(jsonData []byte, channelOtherSettings dto.ChannelOtherSettings, channelPassThroughEnabled bool) ([]byte, error) {
-	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || channelPassThroughEnabled {
+func RemoveDisabledFields(jsonData []byte, channelOtherSettings dto.ChannelOtherSettings, channelPassThroughEnabled bool, channelIDs ...int) ([]byte, error) {
+	channelID := 0
+	if len(channelIDs) > 0 {
+		channelID = channelIDs[0]
+	}
+	if model_setting.GetGlobalSettings().IsPassThroughEnabled(channelID, channelPassThroughEnabled) {
 		return jsonData, nil
 	}
 	if !hasRemovableDisabledField(jsonData, channelOtherSettings) {

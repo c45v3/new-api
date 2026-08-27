@@ -46,6 +46,10 @@ const MODELS_SECTIONS = [
           global: {
             pass_through_request_enabled:
               settings['global.pass_through_request_enabled'],
+            pass_through_request_excluded_channels: formatJsonForEditor(
+              settings['global.pass_through_request_excluded_channels'],
+              '[]'
+            ),
             thinking_model_blacklist: formatJsonForEditor(
               settings['global.thinking_model_blacklist'],
               '[]'

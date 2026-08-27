@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 
 	common2 "github.com/QuantumNous/new-api/common"
@@ -2144,6 +2145,49 @@ func TestRemoveDisabledFieldsSkipWhenGlobalPassThroughEnabled(t *testing.T) {
 		t.Fatalf("RemoveDisabledFields returned error: %v", err)
 	}
 	assertJSONEqual(t, input, string(out))
+}
+
+func TestRemoveDisabledFieldsFiltersExcludedPassThroughChannel(t *testing.T) {
+	globalSettings := model_setting.GetGlobalSettings()
+	originalPassThroughEnabled := globalSettings.PassThroughRequestEnabled
+	originalExcludedChannels := slices.Clone(globalSettings.PassThroughRequestExcludedChannels)
+	t.Cleanup(func() {
+		globalSettings.PassThroughRequestEnabled = originalPassThroughEnabled
+		globalSettings.PassThroughRequestExcludedChannels = originalExcludedChannels
+	})
+
+	globalSettings.PassThroughRequestExcludedChannels = []int{123}
+	input := `{"service_tier":"flex","store":true}`
+	settings := dto.ChannelOtherSettings{}
+
+	for _, tt := range []struct {
+		name                      string
+		globalPassThroughEnabled  bool
+		channelPassThroughEnabled bool
+	}{
+		{
+			name:                     "global pass-through enabled",
+			globalPassThroughEnabled: true,
+		},
+		{
+			name:                      "channel pass-through enabled",
+			channelPassThroughEnabled: true,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			globalSettings.PassThroughRequestEnabled = tt.globalPassThroughEnabled
+
+			out, err := RemoveDisabledFields(
+				[]byte(input),
+				settings,
+				tt.channelPassThroughEnabled,
+				123,
+			)
+
+			require.NoError(t, err)
+			assert.JSONEq(t, `{"store":true}`, string(out))
+		})
+	}
 }
 
 func TestRemoveDisabledFieldsDefaultFiltering(t *testing.T) {
