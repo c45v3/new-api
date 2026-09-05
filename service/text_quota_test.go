@@ -688,6 +688,45 @@ func TestCalculateTextQuotaSummaryKeepsPrePRClaudeOpenRouterBilling(t *testing.T
 	require.Equal(t, 798, summary.Quota)
 }
 
+func TestCalculateTextQuotaSummaryDoesNotSubtractCanonicalClaudeCacheTwiceForOpenRouter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+
+	relayInfo := &relaycommon.RelayInfo{
+		FinalRequestRelayFormat: types.RelayFormatClaude,
+		OriginModelName:         "anthropic/claude-3.7-sonnet",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelType: constant.ChannelTypeOpenRouter,
+		},
+		PriceData: hosttypes.PriceData{
+			ModelRatio:         1,
+			CompletionRatio:    1,
+			CacheRatio:         0.1,
+			CacheCreationRatio: 1.25,
+			GroupRatioInfo:     hosttypes.GroupRatioInfo{GroupRatio: 1},
+		},
+		StartTime: time.Now(),
+	}
+
+	usage := effectiveBillingUsage(&dto.Usage{
+		BillingUsage: dto.NewClaudeMessagesBillingUsage(&dto.ClaudeUsage{
+			InputTokens:          172,
+			OutputTokens:         383,
+			CacheReadInputTokens: 2432,
+		}),
+	})
+	require.NotNil(t, usage)
+
+	summary := calculateTextQuotaSummary(ctx, relayInfo, usage)
+
+	// Canonical Claude usage already excludes cache reads from PromptTokens.
+	// Applying the legacy OpenRouter subtraction again would make this negative.
+	assert.Equal(t, 172, summary.PromptTokens)
+	assert.Equal(t, 383, summary.CompletionTokens)
+	assert.Equal(t, 798, summary.Quota)
+}
+
 func TestComposeTieredTextQuotaKeepsToolCallSurcharges(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
