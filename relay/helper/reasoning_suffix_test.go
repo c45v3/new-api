@@ -2,6 +2,7 @@ package helper
 
 import (
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -542,6 +543,35 @@ func TestApplyReasoningModelSuffixAppliesModifiersWhenPassThroughOff(t *testing.
 		Request:         request,
 		ChannelMeta: &relaycommon.ChannelMeta{
 			UpstreamModelName: request.Model,
+		},
+	}
+
+	mustApplyReasoningModelSuffix(t, info, request)
+	assert.Equal(t, "qwen3.8-max", info.UpstreamModelName)
+	assert.Equal(t, "high", request.ReasoningEffort)
+	require.NotNil(t, info.ReasoningConversion)
+	assert.Equal(t, "enabled", info.ReasoningConversion.Mode)
+}
+
+func TestApplyReasoningModelSuffixAppliesModifiersWhenChannelExcludedFromGlobalPassThrough(t *testing.T) {
+	settings := model_setting.GetGlobalSettings()
+	originalEnabled := settings.PassThroughRequestEnabled
+	originalExcludedChannels := slices.Clone(settings.PassThroughRequestExcludedChannels)
+	t.Cleanup(func() {
+		settings.PassThroughRequestEnabled = originalEnabled
+		settings.PassThroughRequestExcludedChannels = originalExcludedChannels
+	})
+	settings.PassThroughRequestEnabled = true
+	settings.PassThroughRequestExcludedChannels = []int{123}
+
+	request := &dto.GeneralOpenAIRequest{Model: "qwen3.8-max@thinking:on@effort:high"}
+	info := &relaycommon.RelayInfo{
+		OriginModelName: request.Model,
+		Request:         request,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelId:         123,
+			UpstreamModelName: request.Model,
+			ChannelSetting:    dto.ChannelSettings{PassThroughBodyEnabled: true},
 		},
 	}
 

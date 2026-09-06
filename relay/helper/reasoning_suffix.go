@@ -9,7 +9,6 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/setting/model_setting"
 	hostreasoning "github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/gin-gonic/gin"
 )
@@ -26,8 +25,7 @@ func ApplyReasoningModelSuffix(c *gin.Context, info *relaycommon.RelayInfo, outb
 	if info == nil {
 		return nil
 	}
-	if model_setting.GetGlobalSettings().PassThroughRequestEnabled ||
-		info.ChannelMeta != nil && info.ChannelSetting.PassThroughBodyEnabled {
+	if info.IsPassThroughEnabled() {
 		return nil
 	}
 
