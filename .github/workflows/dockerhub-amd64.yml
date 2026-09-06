@@ -1,6 +1,7 @@
 name: Build AMD64 image to Docker Hub
 
 on:
+  push:
   workflow_dispatch:
     inputs:
       tag:
