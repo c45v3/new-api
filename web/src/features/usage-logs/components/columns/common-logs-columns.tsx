@@ -61,6 +61,7 @@ import type { LogOtherData } from '../../types'
 import { DetailsDialog } from '../dialogs/details-dialog'
 import { LogCostDisplay } from '../log-cost-display'
 import { ModelBadge } from '../model-badge'
+import { ReasoningEffortBadge } from '../reasoning-effort-badge'
 import { TimingMetricsCell, StreamTpsCell } from '../timing-metrics-cell'
 import { useUsageLogsContext } from '../usage-logs-provider'
 
@@ -616,6 +617,8 @@ export function useCommonLogsColumns(
         const log = row.original
         if (!isDisplayableLogType(log.type)) return null
 
+        const other = parseLogOther(log.other)
+
         const modelInfo = formatModelName(log)
 
         return (
@@ -624,6 +627,7 @@ export function useCommonLogsColumns(
               modelName={modelInfo.name}
               actualModel={modelInfo.actualModel}
             />
+            <ReasoningEffortBadge effort={other?.reasoning_effort} compact />
           </div>
         )
       },

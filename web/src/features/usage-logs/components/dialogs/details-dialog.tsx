@@ -76,7 +76,6 @@ import {
   isViolationFeeLog,
   getFirstResponseTimeColor,
   getResponseTimeColor,
-  getReasoningEffortVariant,
   renderAuditContent,
 } from '../../lib/format'
 import { buildQuotaAuditOperation } from '../../lib/quota-audit-operation'
@@ -87,6 +86,7 @@ import {
 } from '../../lib/utils'
 import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
 import { PluginAuthorLink } from '../plugin-author-link'
+import { ReasoningEffortBadge } from '../reasoning-effort-badge'
 import { DetailRow, DetailSection } from './log-detail-layout'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
@@ -583,9 +583,6 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const useChannel = other?.admin_info?.use_channel
   const channelChain =
     useChannel && useChannel.length > 0 ? useChannel.join(' → ') : undefined
-  const reasoningEffortVariant = getReasoningEffortVariant(
-    other?.reasoning_effort
-  )
 
   return (
     <Dialog
@@ -663,6 +660,12 @@ export function DetailsDialog(props: DetailsDialogProps) {
               label={t('Group')}
               value={props.log.group || other?.group || ''}
               mono
+            />
+          )}
+          {other?.reasoning_effort?.trim() && (
+            <DetailRow
+              label={t('Reasoning Effort')}
+              value={<ReasoningEffortBadge effort={other.reasoning_effort} />}
             />
           )}
 
@@ -1055,21 +1058,6 @@ export function DetailsDialog(props: DetailsDialogProps) {
               />
             )}
           </DetailSection>
-        )}
-
-        {/* Reasoning effort */}
-        {other?.reasoning_effort && (
-          <DetailRow
-            label={t('Reasoning Effort')}
-            value={
-              <StatusBadge
-                label={other.reasoning_effort}
-                variant={reasoningEffortVariant}
-                size='sm'
-                copyable={false}
-              />
-            }
-          />
         )}
 
         {/* System prompt override */}
