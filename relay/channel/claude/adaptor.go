@@ -29,6 +29,7 @@ func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayIn
 	if err != nil {
 		return nil, err
 	}
+	applyClaudeCodeDisguiseConverted(info, result.Value)
 	return result.Value, nil
 }
 
@@ -49,6 +50,7 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 	if info.UpstreamModelName == "" {
 		info.UpstreamModelName = request.Model
 	}
+	applyClaudeCodeDisguise(info, request)
 	return request, nil
 }
 
@@ -91,6 +93,9 @@ func shouldAppendClaudeBetaQuery(info *relaycommon.RelayInfo) bool {
 	if info.ChannelOtherSettings.ClaudeBetaQuery {
 		return true
 	}
+	if info.ChannelOtherSettings.DisguiseAsClaudeCode {
+		return true
+	}
 	return false
 }
 
@@ -112,6 +117,7 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	}
 	req.Set("anthropic-version", anthropicVersion)
 	CommonClaudeHeadersOperation(c, req, info)
+	applyClaudeCodeHeaders(c, req, info)
 	return nil
 }
 
@@ -123,6 +129,7 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	if err != nil {
 		return nil, err
 	}
+	applyClaudeCodeDisguiseConverted(info, result.Value)
 	return result.Value, nil
 }
 
@@ -144,6 +151,7 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 	if !ok {
 		return nil, fmt.Errorf("expected Anthropic Messages request, got %T", result.Value)
 	}
+	applyClaudeCodeDisguise(info, claudeRequest)
 	return claudeRequest, nil
 }
 
