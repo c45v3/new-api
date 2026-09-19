@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +24,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relay/transparent"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
@@ -228,6 +230,21 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	}
 
 	request := buildTestRequest(testModel, endpointType, channel, isStream)
+	if channel.GetSetting().TransportMode == dto.TransportModeTransparent {
+		payload, marshalErr := common.Marshal(request)
+		if marshalErr != nil {
+			return testResult{context: c, localErr: marshalErr}
+		}
+		requestPath = strings.ReplaceAll(requestPath, "{model}", url.PathEscape(testModel))
+		c.Request = httptest.NewRequestWithContext(ctx, http.MethodPost, requestPath, bytes.NewReader(payload))
+		c.Request.Header.Set("Content-Type", "application/json")
+		defer common.CleanupBodyStorage(c)
+		transparent.Relay(c)
+		if w.Code < http.StatusOK || w.Code >= http.StatusMultipleChoices {
+			return testResult{context: c, localErr: fmt.Errorf("transparent channel test returned HTTP %d", w.Code)}
+		}
+		return testResult{context: c}
+	}
 
 	info, err := relaycommon.GenRelayInfo(c, relayFormat, request, nil)
 

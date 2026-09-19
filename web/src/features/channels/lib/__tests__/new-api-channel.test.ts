@@ -23,7 +23,13 @@ import {
   CHANNEL_TYPE_OPTIONS,
   MODEL_FETCHABLE_TYPES,
 } from '../../constants'
-import { CHANNEL_FORM_DEFAULT_VALUES, channelFormSchema } from '../channel-form'
+import type { Channel } from '../../types'
+import {
+  buildSettingJSON,
+  CHANNEL_FORM_DEFAULT_VALUES,
+  channelFormSchema,
+  transformChannelToFormDefaults,
+} from '../channel-form'
 import { getChannelTypeConfig } from '../channel-type-config'
 import { getChannelTypeIcon, getKeyPromptForType } from '../channel-utils'
 
@@ -87,5 +93,76 @@ describe('New API channel', () => {
     })
 
     expect(result.success).toBe(true)
+  })
+
+  test('requires explicit external billing only for transparent transport', () => {
+    const values = {
+      ...newAPIForm('https://new-api.example'),
+      transport_mode: 'transparent' as const,
+    }
+    const result = channelFormSchema.safeParse(values)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(
+        result.error.issues.some(
+          (issue) => issue.path[0] === 'transparent_billing'
+        )
+      ).toBe(true)
+    }
+    expect(
+      channelFormSchema.safeParse({
+        ...values,
+        transparent_billing: 'external',
+      }).success
+    ).toBe(true)
+    expect(
+      channelFormSchema.safeParse({ ...values, transport_mode: 'convert' })
+        .success
+    ).toBe(true)
+  })
+
+  test('rejects request mutations for transparent transport but permits empty mappings', () => {
+    const values = {
+      ...newAPIForm('https://new-api.example'),
+      transport_mode: 'transparent',
+      transparent_billing: 'external',
+      model_mapping: '{ }',
+    }
+    expect(channelFormSchema.safeParse(values).success).toBe(true)
+    const result = channelFormSchema.safeParse({
+      ...values,
+      model_mapping: '{"gpt-5":"other"}',
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(
+        result.error.issues.some((issue) => issue.path[0] === 'transport_mode')
+      ).toBe(true)
+    }
+  })
+
+  test('roundtrips transparent settings without losing legacy or unknown settings', () => {
+    const channel = {
+      channel_info: {
+        is_multi_key: false,
+        multi_key_size: 0,
+        multi_key_polling_index: 0,
+        multi_key_mode: 'random',
+      },
+      ...newAPIForm('https://new-api.example'),
+      id: 1,
+      group: 'default',
+      setting: JSON.stringify({
+        transport_mode: 'transparent',
+        transparent_billing: 'external',
+        pass_through_body_enabled: true,
+        proxy: 'https://proxy.example',
+        future_setting: { enabled: true },
+      }),
+    } as Channel
+    const saved = JSON.parse(
+      buildSettingJSON(transformChannelToFormDefaults(channel))
+    )
+    expect(saved).toMatchObject(JSON.parse(channel.setting ?? ''))
   })
 })

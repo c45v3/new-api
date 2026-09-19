@@ -85,6 +85,13 @@ export interface ChannelSettings {
   thinking_to_content?: boolean
   proxy?: string
   pass_through_body_enabled?: boolean
+  transport_mode?:
+    | ''
+    | 'inherit'
+    | 'convert'
+    | 'body_passthrough'
+    | 'transparent'
+  transparent_billing?: '' | 'external'
   system_prompt?: string
   system_prompt_override?: boolean
   http_protocol?: 'auto' | 'http1' | string

@@ -547,6 +547,7 @@ export const STATIC_I18N_KEYS = [
   'Redirecting to chat page...',
 
   // Channel upstream updates
+  'Confirm external billing for Transparent Relay',
   'No processable upstream model updates for this channel',
   'Upstream model updates applied: {{added}} added, {{removed}} removed, {{ignored}} ignored this time, {{totalIgnored}} total ignored models',
   'Batch processing failed',

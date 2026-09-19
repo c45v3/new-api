@@ -294,6 +294,8 @@ const SENSITIVE_FORM_FIELDS = [
   'http_protocol',
   'http2_connection_shards',
   'pass_through_body_enabled',
+  'transport_mode',
+  'transparent_billing',
   'system_prompt',
   'system_prompt_override',
   'allow_service_tier',
@@ -348,6 +350,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.force_format ||
     values.thinking_to_content ||
     values.pass_through_body_enabled ||
+    (values.transport_mode && values.transport_mode !== 'inherit') ||
     values.system_prompt_override ||
     (values.http_protocol && values.http_protocol !== 'auto') ||
     (values.http2_connection_shards != null &&
@@ -713,6 +716,7 @@ export function ChannelMutateDrawer({
   const currentForceFormat = form.watch('force_format')
   const currentThinkingToContent = form.watch('thinking_to_content')
   const currentPassThroughBodyEnabled = form.watch('pass_through_body_enabled')
+  const currentTransportMode = form.watch('transport_mode')
   const currentDisableTaskPollingSleep = form.watch(
     'disable_task_polling_sleep'
   )
@@ -1006,6 +1010,7 @@ export function ChannelMutateDrawer({
     currentForceFormat ||
     currentThinkingToContent ||
     currentPassThroughBodyEnabled ||
+    (currentTransportMode && currentTransportMode !== 'inherit') ||
     currentDisableTaskPollingSleep ||
     currentProxy?.trim() ||
     currentSystemPrompt?.trim() ||
@@ -4176,6 +4181,127 @@ export function ChannelMutateDrawer({
                             disabled={sensitiveLocked}
                             className='space-y-4 disabled:opacity-60'
                           >
+                            <FormField
+                              control={form.control}
+                              name='transport_mode'
+                              render={({ field }) => {
+                                const items = [
+                                  {
+                                    value: 'inherit',
+                                    label: t('Inherit legacy behavior'),
+                                  },
+                                  {
+                                    value: 'convert',
+                                    label: t('Convert requests'),
+                                  },
+                                  {
+                                    value: 'body_passthrough',
+                                    label: t('Request Body Passthrough'),
+                                  },
+                                  {
+                                    value: 'transparent',
+                                    label: t('Transparent Relay'),
+                                  },
+                                ]
+                                return (
+                                  <FormItem>
+                                    <FormLabel>{t('Transport mode')}</FormLabel>
+                                    <Select
+                                      items={items}
+                                      value={field.value || 'inherit'}
+                                      onValueChange={field.onChange}
+                                    >
+                                      <FormControl>
+                                        <SelectTrigger>
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                      </FormControl>
+                                      <SelectContent
+                                        alignItemWithTrigger={false}
+                                      >
+                                        <SelectGroup>
+                                          {items.map((item) => (
+                                            <SelectItem
+                                              key={item.value}
+                                              value={item.value}
+                                            >
+                                              {item.label}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectGroup>
+                                      </SelectContent>
+                                    </Select>
+                                    <FormDescription>
+                                      {t(
+                                        'Explicit modes override global and legacy channel settings. Inherit keeps existing passthrough exclusions.'
+                                      )}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )
+                              }}
+                            />
+                            {currentTransportMode === 'transparent' && (
+                              <FormField
+                                control={form.control}
+                                name='transparent_billing'
+                                render={({ field }) => {
+                                  const items = [
+                                    {
+                                      value: '',
+                                      label: t('Select billing acknowledgment'),
+                                    },
+                                    {
+                                      value: 'external',
+                                      label: t('I use external billing'),
+                                    },
+                                  ]
+                                  return (
+                                    <FormItem>
+                                      <FormLabel>
+                                        {t('Transparent Relay billing')}
+                                      </FormLabel>
+                                      <Select
+                                        items={items}
+                                        value={field.value || ''}
+                                        onValueChange={field.onChange}
+                                      >
+                                        <FormControl>
+                                          <SelectTrigger>
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent
+                                          alignItemWithTrigger={false}
+                                        >
+                                          <SelectGroup>
+                                            {items.map((item) => (
+                                              <SelectItem
+                                                key={item.value}
+                                                value={item.value}
+                                              >
+                                                {item.label}
+                                              </SelectItem>
+                                            ))}
+                                          </SelectGroup>
+                                        </SelectContent>
+                                      </Select>
+                                      <FormDescription>
+                                        {t(
+                                          'Raw HTTP requests and responses use the same protocol. No local billing, usage accounting, or retries. Authentication and rate limits remain. Requires a supported static-credential channel; WebSocket is unsupported.'
+                                        )}
+                                      </FormDescription>
+                                      <FormDescription>
+                                        {t(
+                                          'Transparent Relay requires disabling model mapping, parameter overrides, system prompts, response conversion, disguise, disable-store, and advanced custom conversion.'
+                                        )}
+                                      </FormDescription>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )
+                                }}
+                              />
+                            )}
                             <div className='divide-border space-y-0 divide-y border-y'>
                               {currentType === 1 && (
                                 <FormField
@@ -4236,17 +4362,21 @@ export function ChannelMutateDrawer({
                                   <FormItem className='flex items-center justify-between px-4 py-3'>
                                     <div className='space-y-0.5'>
                                       <FormLabel>
-                                        {t('Pass Through Body')}
+                                        {t('Request Body Passthrough')}
                                       </FormLabel>
                                       <FormDescription>
                                         {t(
-                                          'Pass request body directly to upstream'
+                                          'Legacy setting for Inherit mode. Forward the request body unchanged; response processing and billing remain.'
                                         )}
                                       </FormDescription>
                                     </div>
                                     <FormControl>
                                       <Switch
                                         checked={field.value}
+                                        disabled={Boolean(
+                                          currentTransportMode &&
+                                          currentTransportMode !== 'inherit'
+                                        )}
                                         onCheckedChange={field.onChange}
                                       />
                                     </FormControl>
@@ -4714,7 +4844,9 @@ export function ChannelMutateDrawer({
                                               <FormControl>
                                                 <Switch
                                                   checked={field.value}
-                                                  onCheckedChange={field.onChange}
+                                                  onCheckedChange={
+                                                    field.onChange
+                                                  }
                                                 />
                                               </FormControl>
                                             </FormItem>
@@ -4740,7 +4872,9 @@ export function ChannelMutateDrawer({
                                               <FormControl>
                                                 <Switch
                                                   checked={field.value}
-                                                  onCheckedChange={field.onChange}
+                                                  onCheckedChange={
+                                                    field.onChange
+                                                  }
                                                 />
                                               </FormControl>
                                             </FormItem>

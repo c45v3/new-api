@@ -264,6 +264,10 @@ export const channelFormSchema = z
     http_protocol: z.enum(['auto', 'http1']).optional(),
     http2_connection_shards: z.number().int().optional(),
     pass_through_body_enabled: z.boolean().optional(),
+    transport_mode: z
+      .enum(['', 'inherit', 'convert', 'body_passthrough', 'transparent'])
+      .optional(),
+    transparent_billing: z.enum(['', 'external']).optional(),
     system_prompt: z.string().optional(),
     system_prompt_override: z.boolean().optional(),
     // Type-specific settings (stored in settings JSON)
@@ -287,6 +291,38 @@ export const channelFormSchema = z
     upstream_model_update_ignored_models: z.string().optional(),
   })
   .superRefine((data, ctx) => {
+    if (data.transport_mode === 'transparent') {
+      if (data.transparent_billing !== 'external') {
+        addRequiredIssue(
+          ctx,
+          'transparent_billing',
+          'Confirm external billing for Transparent Relay'
+        )
+      }
+      if (
+        [data.model_mapping, data.param_override].some((value) => {
+          if (!value?.trim()) return false
+          try {
+            return Object.keys(JSON.parse(value)).length > 0
+          } catch {
+            return true
+          }
+        }) ||
+        data.system_prompt?.trim() ||
+        data.system_prompt_override ||
+        data.force_format ||
+        data.thinking_to_content ||
+        data.disguise_as_claude_code ||
+        data.disable_store ||
+        data.type === CHANNEL_TYPE_ADVANCED_CUSTOM
+      ) {
+        addRequiredIssue(
+          ctx,
+          'transport_mode',
+          'Transparent Relay requires disabling model mapping, parameter overrides, system prompts, response conversion, disguise, disable-store, and advanced custom conversion.'
+        )
+      }
+    }
     if (
       [3, 8, 36, 45, CHANNEL_TYPE_NEW_API, CHANNEL_TYPE_TASK_PLUGIN].includes(
         data.type
@@ -446,6 +482,8 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   http_protocol: HTTP_PROTOCOL_AUTO,
   http2_connection_shards: 1,
   pass_through_body_enabled: false,
+  transport_mode: 'inherit',
+  transparent_billing: '',
   system_prompt: '',
   system_prompt_override: false,
   // Type-specific settings
@@ -488,6 +526,8 @@ export function transformChannelToFormDefaults(
     http_protocol: HTTP_PROTOCOL_AUTO as 'auto' | 'http1',
     http2_connection_shards: 1,
     pass_through_body_enabled: false,
+    transport_mode: 'inherit' as ChannelFormValues['transport_mode'],
+    transparent_billing: '' as ChannelFormValues['transparent_billing'],
     system_prompt: '',
     system_prompt_override: false,
   }
@@ -507,6 +547,8 @@ export function transformChannelToFormDefaults(
         http_protocol: protocol,
         http2_connection_shards: protocol === HTTP_PROTOCOL_HTTP1 ? 1 : shards,
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
+        transport_mode: parsed.transport_mode || 'inherit',
+        transparent_billing: parsed.transparent_billing || '',
         system_prompt: parsed.system_prompt || '',
         system_prompt_override: parsed.system_prompt_override || false,
       }
@@ -623,6 +665,7 @@ export function transformChannelToFormDefaults(
  */
 export function buildSettingJSON(formData: ChannelFormValues): string {
   const settingObj: Record<string, unknown> = {
+    ...JSON.parse(formData.setting?.trim() || '{}'),
     task_plugin_key:
       formData.type === CHANNEL_TYPE_TASK_PLUGIN
         ? formData.task_plugin_key?.trim() || ''
@@ -631,6 +674,8 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     thinking_to_content: formData.thinking_to_content || false,
     proxy: formData.proxy?.trim() || '',
     pass_through_body_enabled: formData.pass_through_body_enabled || false,
+    transport_mode: formData.transport_mode || 'inherit',
+    transparent_billing: formData.transparent_billing || '',
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,
   }
@@ -641,6 +686,8 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
       ? 1
       : normalizeHttp2ConnectionShards(formData.http2_connection_shards)
 
+  delete settingObj.http_protocol
+  delete settingObj.http2_connection_shards
   // Omit defaults so unchanged channels keep equivalent JSON.
   if (protocol === HTTP_PROTOCOL_HTTP1) {
     settingObj.http_protocol = HTTP_PROTOCOL_HTTP1

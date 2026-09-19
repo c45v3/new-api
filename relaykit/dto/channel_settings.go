@@ -11,6 +11,11 @@ import (
 )
 
 type ChannelSettings struct {
+	// TransportMode is independent of the endpoint/protocol relay mode.
+	// Empty/inherit preserves the legacy Request Body Passthrough settings.
+	TransportMode TransportMode `json:"transport_mode,omitempty"`
+	// TransparentBilling must explicitly acknowledge externally managed billing.
+	TransparentBilling     string `json:"transparent_billing,omitempty"`
 	TaskPluginKey          string `json:"task_plugin_key,omitempty"`
 	ForceFormat            bool   `json:"force_format,omitempty"`
 	ThinkingToContent      bool   `json:"thinking_to_content,omitempty"`
@@ -24,6 +29,49 @@ type ChannelSettings struct {
 	// HTTP2ConnectionShards spreads HTTP/2 traffic across N independent transports
 	// (1-8). Zero/unset means 1. Ignored when HTTPProtocol is "http1".
 	HTTP2ConnectionShards int `json:"http2_connection_shards,omitempty"`
+}
+
+type TransportMode string
+
+const (
+	TransportModeInherit         TransportMode = "inherit"
+	TransportModeConvert         TransportMode = "convert"
+	TransportModeBodyPassthrough TransportMode = "body_passthrough"
+	TransportModeTransparent     TransportMode = "transparent"
+)
+
+func (s ChannelSettings) ValidateTransportMode() error {
+	switch s.TransportMode {
+	case "", TransportModeInherit, TransportModeConvert, TransportModeBodyPassthrough, TransportModeTransparent:
+	default:
+		return fmt.Errorf("invalid transport_mode: %s", s.TransportMode)
+	}
+	if s.TransparentBilling != "" && s.TransparentBilling != "external" {
+		return fmt.Errorf("transparent_billing must be external or empty")
+	}
+	if s.TransportMode != TransportModeTransparent {
+		return nil
+	}
+	if s.TransparentBilling != "external" {
+		return fmt.Errorf("transparent relay requires transparent_billing=external; new-api will not charge or account usage")
+	}
+	if s.ForceFormat || s.ThinkingToContent || s.SystemPrompt != "" || s.SystemPromptOverride {
+		return fmt.Errorf("transparent relay is incompatible with format conversion and system prompt settings")
+	}
+	return nil
+}
+
+// ValidateTransparentMutations rejects explicit transformations rather than
+// silently discarding administrator intent. Implicit conversion defaults are
+// not applied at all by the independent transparent pipeline.
+func (s ChannelSettings) ValidateTransparentMutations(other ChannelOtherSettings, hasParamOverride, hasModelMapping bool) error {
+	if s.TransportMode != TransportModeTransparent {
+		return nil
+	}
+	if hasParamOverride || hasModelMapping || other.DisguiseAsClaudeCode || other.DisableStore || other.AdvancedCustom != nil {
+		return fmt.Errorf("transparent relay is incompatible with param override, model mapping, disguise, disabled-field filtering and advanced custom conversion")
+	}
+	return nil
 }
 
 const (

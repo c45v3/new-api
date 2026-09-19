@@ -698,8 +698,19 @@ export function useChannelsColumns(
 
           // Regular channel row
           const settings = parseChannelSettings(channel.setting)
-          const isPassThrough = settings.pass_through_body_enabled === true
+          const transportMode = settings.transport_mode || 'inherit'
+          const isPassThrough =
+            transportMode === 'body_passthrough' ||
+            (transportMode === 'inherit' &&
+              settings.pass_through_body_enabled === true)
           const hasParamOverride = Boolean(channel.param_override?.trim())
+          let transportLabel = t('Request Body Passthrough')
+          if (transportMode === 'transparent') {
+            transportLabel = t('Transparent Relay')
+          }
+          if (transportMode === 'convert') {
+            transportLabel = t('Convert requests')
+          }
 
           return (
             <div className='flex max-w-full min-w-0 items-center gap-2'>
@@ -710,6 +721,14 @@ export function useChannelsColumns(
                     className='font-medium'
                     maxWidth='max-w-full'
                   />
+                  {transportMode !== 'inherit' && (
+                    <StatusBadge
+                      label={transportLabel}
+                      variant='blue'
+                      size='sm'
+                      copyable={false}
+                    />
+                  )}
                   {isPassThrough && (
                     <TooltipProvider delay={100}>
                       <Tooltip>
@@ -720,7 +739,7 @@ export function useChannelsColumns(
                         />
                         <TooltipContent side='top'>
                           {t(
-                            'Request body pass-through is enabled. The request body will be sent directly to the upstream without any conversion.'
+                            'Request body passthrough leaves response processing and billing enabled.'
                           )}
                         </TooltipContent>
                       </Tooltip>

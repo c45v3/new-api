@@ -20,6 +20,10 @@ import (
 const KeyRequestBody = "key_request_body"
 const KeyBodyStorage = "key_body_storage"
 
+// Original compressed request bytes are owned by the decompression middleware.
+const KeyOriginalBodyStorage = "key_original_body_storage"
+const KeyOriginalContentEncoding = "key_original_content_encoding"
+
 var ErrRequestBodyTooLarge = errors.New("request body too large")
 
 func IsRequestBodyTooLargeError(err error) bool {

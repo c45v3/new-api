@@ -2119,7 +2119,7 @@ func TestRemoveDisabledFieldsSkipWhenChannelPassThroughEnabled(t *testing.T) {
 	}`
 	settings := dto.ChannelOtherSettings{}
 
-	out, err := RemoveDisabledFields([]byte(input), settings, true)
+	out, err := RemoveDisabledFields([]byte(input), settings, dto.ChannelSettings{PassThroughBodyEnabled: true})
 	if err != nil {
 		t.Fatalf("RemoveDisabledFields returned error: %v", err)
 	}
@@ -2140,7 +2140,7 @@ func TestRemoveDisabledFieldsSkipWhenGlobalPassThroughEnabled(t *testing.T) {
 	}`
 	settings := dto.ChannelOtherSettings{}
 
-	out, err := RemoveDisabledFields([]byte(input), settings, false)
+	out, err := RemoveDisabledFields([]byte(input), settings, dto.ChannelSettings{})
 	if err != nil {
 		t.Fatalf("RemoveDisabledFields returned error: %v", err)
 	}
@@ -2180,7 +2180,7 @@ func TestRemoveDisabledFieldsFiltersExcludedPassThroughChannel(t *testing.T) {
 			out, err := RemoveDisabledFields(
 				[]byte(input),
 				settings,
-				tt.channelPassThroughEnabled,
+				dto.ChannelSettings{PassThroughBodyEnabled: tt.channelPassThroughEnabled},
 				123,
 			)
 
@@ -2202,7 +2202,7 @@ func TestRemoveDisabledFieldsDefaultFiltering(t *testing.T) {
 	}`
 	settings := dto.ChannelOtherSettings{}
 
-	out, err := RemoveDisabledFields([]byte(input), settings, false)
+	out, err := RemoveDisabledFields([]byte(input), settings, dto.ChannelSettings{})
 	if err != nil {
 		t.Fatalf("RemoveDisabledFields returned error: %v", err)
 	}
@@ -2213,7 +2213,7 @@ func TestRemoveDisabledFieldsNoControlledFieldsKeepsBody(t *testing.T) {
 	input := `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`
 	settings := dto.ChannelOtherSettings{}
 
-	out, err := RemoveDisabledFields([]byte(input), settings, false)
+	out, err := RemoveDisabledFields([]byte(input), settings, dto.ChannelSettings{})
 	if err != nil {
 		t.Fatalf("RemoveDisabledFields returned error: %v", err)
 	}
@@ -2229,7 +2229,7 @@ func TestRemoveDisabledFieldsAllowInferenceGeo(t *testing.T) {
 		AllowInferenceGeo: true,
 	}
 
-	out, err := RemoveDisabledFields([]byte(input), settings, false)
+	out, err := RemoveDisabledFields([]byte(input), settings, dto.ChannelSettings{})
 	if err != nil {
 		t.Fatalf("RemoveDisabledFields returned error: %v", err)
 	}
@@ -2245,7 +2245,7 @@ func TestRemoveDisabledFieldsAllowSpeed(t *testing.T) {
 		AllowSpeed: true,
 	}
 
-	out, err := RemoveDisabledFields([]byte(input), settings, false)
+	out, err := RemoveDisabledFields([]byte(input), settings, dto.ChannelSettings{})
 	if err != nil {
 		t.Fatalf("RemoveDisabledFields returned error: %v", err)
 	}

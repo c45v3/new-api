@@ -982,6 +982,9 @@ func (channel *Channel) ValidateSettings() error {
 	if err := channelParams.ValidateHTTPTransport(); err != nil {
 		return err
 	}
+	if err := channelParams.ValidateTransportMode(); err != nil {
+		return err
+	}
 	channelOtherSettings := &dto.ChannelOtherSettings{}
 	if channel.OtherSettings != "" {
 		err := common.UnmarshalJsonStr(channel.OtherSettings, channelOtherSettings)
@@ -991,6 +994,17 @@ func (channel *Channel) ValidateSettings() error {
 	}
 	if err := channelOtherSettings.ValidateToolLossPolicy(); err != nil {
 		return err
+	}
+	if channelParams.TransportMode == dto.TransportModeTransparent {
+		var mapping map[string]string
+		if raw := channel.GetModelMapping(); raw != "" {
+			if err := common.UnmarshalJsonStr(raw, &mapping); err != nil {
+				return fmt.Errorf("invalid transparent model mapping")
+			}
+		}
+		if err := channelParams.ValidateTransparentMutations(*channelOtherSettings, len(channel.GetParamOverride()) > 0, len(mapping) > 0); err != nil {
+			return err
+		}
 	}
 	if channel.Type == constant.ChannelTypeAdvancedCustom {
 		if channelOtherSettings.AdvancedCustom == nil {

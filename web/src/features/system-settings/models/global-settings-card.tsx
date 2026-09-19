@@ -220,10 +220,10 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
             render={({ field }) => (
               <SettingsSwitchItem>
                 <SettingsSwitchContent>
-                  <FormLabel>{t('Enable Request Passthrough')}</FormLabel>
+                  <FormLabel>{t('Request Body Passthrough')}</FormLabel>
                   <FormDescription>
                     {t(
-                      'Forward requests directly to upstream providers without any post-processing.'
+                      'Forward the request body unchanged; response processing and billing remain. Applies only to channels using Inherit mode.'
                     )}
                   </FormDescription>
                 </SettingsSwitchContent>
@@ -243,7 +243,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
             render={({ field }) => (
               <FormItem>
                 <FormLabel>
-                  {t('Excluded request passthrough channels')}
+                  {t('Excluded request body passthrough channels')}
                 </FormLabel>
                 <FormControl>
                   <JsonCodeEditor
@@ -258,7 +258,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                 </FormControl>
                 <FormDescription>
                   {t(
-                    'Requests for these channel IDs bypass request passthrough, even when enabled globally or on the channel.'
+                    'These channel IDs disable legacy request body passthrough in Inherit mode. Explicit transport modes take precedence.'
                   )}
                 </FormDescription>
                 <FormMessage />

@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/config"
 )
 
@@ -37,9 +38,9 @@ func (p ChatCompletionsToResponsesPolicy) IsChannelEnabled(channelID int, channe
 }
 
 type GlobalSettings struct {
-	PassThroughRequestEnabled          bool                             `json:"pass_through_request_enabled"`
-	PassThroughRequestExcludedChannels []int                          `json:"pass_through_request_excluded_channels"`
-	ThinkingModelBlacklist             []string                         `json:"thinking_model_blacklist"`
+	PassThroughRequestEnabled          bool     `json:"pass_through_request_enabled"`
+	PassThroughRequestExcludedChannels []int    `json:"pass_through_request_excluded_channels"`
+	ThinkingModelBlacklist             []string `json:"thinking_model_blacklist"`
 	// EffortTailModelIDs lists real model IDs that sit inside the GPT/o-series
 	// family whitelist but whose names already end in an effort word.
 	EffortTailModelIDs               []string                         `json:"effort_tail_model_ids"`
@@ -96,6 +97,18 @@ func (s *GlobalSettings) IsPassThroughEnabled(channelID int, channelSettingEnabl
 		return false
 	}
 	return (s != nil && s.PassThroughRequestEnabled) || channelSettingEnabled
+}
+
+// EffectiveTransportMode gives an explicit channel mode precedence over legacy
+// flags. Inherit keeps global exclusions ahead of the old channel boolean.
+func (s *GlobalSettings) EffectiveTransportMode(channelID int, settings dto.ChannelSettings) dto.TransportMode {
+	if settings.TransportMode != "" && settings.TransportMode != dto.TransportModeInherit {
+		return settings.TransportMode
+	}
+	if s.IsPassThroughEnabled(channelID, settings.PassThroughBodyEnabled) {
+		return dto.TransportModeBodyPassthrough
+	}
+	return dto.TransportModeConvert
 }
 
 // ValidatePassThroughRequestExcludedChannels validates the JSON persisted by
