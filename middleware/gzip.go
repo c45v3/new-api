@@ -20,11 +20,22 @@ type readCloser struct {
 	closeErr  error
 }
 
+func (rc *readCloser) Read(p []byte) (int, error) {
+	if rc.Reader == nil {
+		return 0, io.ErrClosedPipe
+	}
+	return rc.Reader.Read(p)
+}
+
 func (rc *readCloser) Close() error {
 	rc.closeOnce.Do(func() {
 		if rc.closeFn != nil {
 			rc.closeErr = rc.closeFn()
 		}
+		// The deferred Close retains this wrapper until the request ends. Do not
+		// retain decoder buffers or the original compressed reader with it.
+		rc.Reader = nil
+		rc.closeFn = nil
 	})
 	return rc.closeErr
 }
@@ -59,7 +70,7 @@ func DecompressRequestMiddleware() gin.HandlerFunc {
 				c.AbortWithStatus(status)
 				return
 			}
-			defer storage.Close()
+			defer common.ReleaseOriginalBodyStorage(c)
 			c.Set(common.KeyOriginalBodyStorage, storage)
 			c.Set(common.KeyOriginalContentEncoding, encoding)
 			origBody, err = storage.NewReader()

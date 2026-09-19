@@ -109,6 +109,21 @@ func CleanupBodyStorage(c *gin.Context) {
 	}
 }
 
+// ReleaseOriginalBodyStorage relinquishes the compressed wire representation.
+// Call only after its decoded body has been consumed or retained independently.
+// Both early release and deferred cleanup use this owner, so Close runs once.
+func ReleaseOriginalBodyStorage(c *gin.Context) {
+	storage, _ := c.Get(KeyOriginalBodyStorage)
+	if storage == nil {
+		return
+	}
+	c.Set(KeyOriginalBodyStorage, nil)
+	c.Set(KeyOriginalContentEncoding, "")
+	if bs, ok := storage.(BodyStorage); ok {
+		_ = bs.Close()
+	}
+}
+
 func UnmarshalBodyReusable(c *gin.Context, v any) error {
 	storage, err := GetBodyStorage(c)
 	if err != nil {

@@ -85,6 +85,7 @@ export interface ChannelSettings {
   thinking_to_content?: boolean
   proxy?: string
   pass_through_body_enabled?: boolean
+  transparent_relay?: boolean
   transport_mode?:
     | ''
     | 'inherit'
@@ -187,6 +188,7 @@ export interface ChannelOpsResponse {
   message?: string
   data?: {
     retry_times: number
+    transparent_relay_channel_types?: number[]
   }
 }
 

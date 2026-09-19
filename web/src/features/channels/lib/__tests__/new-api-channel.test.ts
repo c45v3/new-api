@@ -28,6 +28,7 @@ import {
   buildSettingJSON,
   CHANNEL_FORM_DEFAULT_VALUES,
   channelFormSchema,
+  createChannelFormSchema,
   transformChannelToFormDefaults,
 } from '../channel-form'
 import { getChannelTypeConfig } from '../channel-type-config'
@@ -95,74 +96,124 @@ describe('New API channel', () => {
     expect(result.success).toBe(true)
   })
 
-  test('requires explicit external billing only for transparent transport', () => {
+  test('requires explicit external billing only when Transparent Relay is enabled', () => {
+    const schema = createChannelFormSchema([CHANNEL_TYPE_NEW_API])
     const values = {
       ...newAPIForm('https://new-api.example'),
-      transport_mode: 'transparent' as const,
+      transparent_relay: true,
     }
-    const result = channelFormSchema.safeParse(values)
+    const result = schema.safeParse(values)
     expect(result.success).toBe(false)
     if (!result.success) {
-      expect(
-        result.error.issues.some(
-          (issue) => issue.path[0] === 'transparent_billing'
-        )
-      ).toBe(true)
+      expect(result.error.issues.map((issue) => issue.path[0])).toContain(
+        'transparent_billing'
+      )
     }
     expect(
-      channelFormSchema.safeParse({
-        ...values,
-        transparent_billing: 'external',
-      }).success
+      schema.safeParse({ ...values, transparent_billing: 'external' }).success
     ).toBe(true)
     expect(
-      channelFormSchema.safeParse({ ...values, transport_mode: 'convert' })
-        .success
+      schema.safeParse({ ...values, transparent_relay: false }).success
     ).toBe(true)
   })
 
-  test('rejects request mutations for transparent transport but permits empty mappings', () => {
+  test('rejects request mutations but permits empty mappings with Transparent Relay', () => {
+    const schema = createChannelFormSchema([CHANNEL_TYPE_NEW_API])
     const values = {
       ...newAPIForm('https://new-api.example'),
-      transport_mode: 'transparent',
+      transparent_relay: true,
       transparent_billing: 'external',
       model_mapping: '{ }',
     }
-    expect(channelFormSchema.safeParse(values).success).toBe(true)
-    const result = channelFormSchema.safeParse({
+    expect(schema.safeParse(values).success).toBe(true)
+    const result = schema.safeParse({
       ...values,
       model_mapping: '{"gpt-5":"other"}',
     })
     expect(result.success).toBe(false)
     if (!result.success) {
-      expect(
-        result.error.issues.some((issue) => issue.path[0] === 'transport_mode')
-      ).toBe(true)
+      expect(result.error.issues.map((issue) => issue.path[0])).toContain(
+        'transparent_relay'
+      )
     }
   })
 
-  test('roundtrips transparent settings without losing legacy or unknown settings', () => {
-    const channel = {
-      channel_info: {
-        is_multi_key: false,
-        multi_key_size: 0,
-        multi_key_polling_index: 0,
-        multi_key_mode: 'random',
-      },
+  test('rejects Claude Code disguise even for a supported transparent channel', () => {
+    const result = createChannelFormSchema([CHANNEL_TYPE_NEW_API]).safeParse({
       ...newAPIForm('https://new-api.example'),
-      id: 1,
-      group: 'default',
-      setting: JSON.stringify({
-        transport_mode: 'transparent',
+      transparent_relay: true,
+      transparent_billing: 'external',
+      disguise_as_claude_code: true,
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues.map((issue) => issue.path[0])).toContain(
+        'transparent_relay'
+      )
+    }
+  })
+
+  test.each([
+    ['unavailable capability', undefined, CHANNEL_TYPE_NEW_API],
+    ['unsupported type', [1], CHANNEL_TYPE_NEW_API],
+    ['Custom endpoint type', [1, CHANNEL_TYPE_NEW_API], 8],
+  ] as const)('rejects Transparent Relay with %s', (_, supported, type) => {
+    const result = createChannelFormSchema(supported).safeParse({
+      ...newAPIForm('https://new-api.example'),
+      type,
+      transparent_relay: true,
+      transparent_billing: 'external',
+      // A persisted value cannot grant a capability the server did not return.
+      transparent_relay_channel_types: [type],
+      setting: JSON.stringify({ transparent_relay_channel_types: [type] }),
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues.map((issue) => issue.path[0])).toContain(
+        'transparent_relay'
+      )
+    }
+  })
+
+  test.each([
+    ['transparent', undefined, true],
+    ['transparent', false, false],
+    ['convert', undefined, false],
+    ['inherit', undefined, false],
+    ['body_passthrough', undefined, false],
+  ] as const)(
+    'migrates legacy %s with explicit flag %s without losing unrelated settings',
+    (mode, explicit, enabled) => {
+      const channel = {
+        channel_info: {
+          is_multi_key: false,
+          multi_key_size: 0,
+          multi_key_polling_index: 0,
+          multi_key_mode: 'random',
+        },
+        ...newAPIForm('https://new-api.example'),
+        id: 1,
+        group: 'default',
+        setting: JSON.stringify({
+          transport_mode: mode,
+          transparent_relay: explicit,
+          transparent_billing: 'external',
+          pass_through_body_enabled: true,
+          proxy: 'https://proxy.example',
+          future_setting: { enabled: true },
+        }),
+      } as Channel
+      const values = transformChannelToFormDefaults(channel)
+      expect(values.transparent_relay).toBe(enabled)
+      const saved = JSON.parse(buildSettingJSON(values))
+      expect(saved).toMatchObject({
+        transparent_relay: enabled,
         transparent_billing: 'external',
         pass_through_body_enabled: true,
         proxy: 'https://proxy.example',
         future_setting: { enabled: true },
-      }),
-    } as Channel
-    const saved = JSON.parse(
-      buildSettingJSON(transformChannelToFormDefaults(channel))
-    )
-    expect(saved).toMatchObject(JSON.parse(channel.setting ?? ''))
-  })
+      })
+      expect(saved).not.toHaveProperty('transport_mode')
+    }
+  )
 })

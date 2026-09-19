@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -198,6 +199,20 @@ func Distribute() func(c *gin.Context) {
 		if setupErr := SetupContextForSelectedChannel(c, channel, modelRequest.Model); setupErr != nil && channel != nil {
 			abortWithOpenAiMessage(c, setupErr.StatusCode, setupErr.Error())
 			return
+		}
+		if original, _ := c.Get(common.KeyOriginalBodyStorage); original != nil && channel != nil &&
+			model_setting.ResolveRelayBehavior(channel.Id, channel.GetSetting(), channel.GetOtherSettings(), model_setting.GetGlobalSettings()) != model_setting.RelayBehaviorTransparent {
+			// Some routes extract the model without reading the body. Retain the
+			// decoded representation before releasing the compressed backing file.
+			if _, err := common.GetBodyStorage(c); err != nil {
+				status := http.StatusBadRequest
+				if common.IsRequestBodyTooLargeError(err) {
+					status = http.StatusRequestEntityTooLarge
+				}
+				abortWithOpenAiMessage(c, status, "cannot read request body")
+				return
+			}
+			common.ReleaseOriginalBodyStorage(c)
 		}
 		c.Next()
 		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest {

@@ -2110,20 +2110,19 @@ func TestGetEffectiveHeaderOverrideUsesRuntimeOverrideAsFinalResult(t *testing.T
 	}
 }
 
-func TestRemoveDisabledFieldsSkipWhenChannelPassThroughEnabled(t *testing.T) {
-	input := `{
-		"service_tier":"flex",
-		"safety_identifier":"user-123",
-		"store":true,
-		"stream_options":{"include_obfuscation":false}
-	}`
-	settings := dto.ChannelOtherSettings{}
+func TestRemoveDisabledFieldsIgnoresLegacyChannelPassThrough(t *testing.T) {
+	global := model_setting.GetGlobalSettings()
+	original := global.PassThroughRequestEnabled
+	t.Cleanup(func() { global.PassThroughRequestEnabled = original })
+	global.PassThroughRequestEnabled = false
 
-	out, err := RemoveDisabledFields([]byte(input), settings, dto.ChannelSettings{PassThroughBodyEnabled: true})
-	if err != nil {
-		t.Fatalf("RemoveDisabledFields returned error: %v", err)
-	}
-	assertJSONEqual(t, input, string(out))
+	out, err := RemoveDisabledFields(
+		[]byte(`{"service_tier":"flex","safety_identifier":"user-123","store":true}`),
+		dto.ChannelOtherSettings{},
+		dto.ChannelSettings{PassThroughBodyEnabled: true},
+	)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"store":true}`, string(out))
 }
 
 func TestRemoveDisabledFieldsSkipWhenGlobalPassThroughEnabled(t *testing.T) {
@@ -2145,6 +2144,21 @@ func TestRemoveDisabledFieldsSkipWhenGlobalPassThroughEnabled(t *testing.T) {
 		t.Fatalf("RemoveDisabledFields returned error: %v", err)
 	}
 	assertJSONEqual(t, input, string(out))
+}
+
+func TestRemoveDisabledFieldsDisguiseOverridesGlobalPassThrough(t *testing.T) {
+	global := model_setting.GetGlobalSettings()
+	original := global.PassThroughRequestEnabled
+	t.Cleanup(func() { global.PassThroughRequestEnabled = original })
+	global.PassThroughRequestEnabled = true
+
+	out, err := RemoveDisabledFields(
+		[]byte(`{"service_tier":"flex","store":true}`),
+		dto.ChannelOtherSettings{DisguiseAsClaudeCode: true},
+		dto.ChannelSettings{},
+	)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"store":true}`, string(out))
 }
 
 func TestRemoveDisabledFieldsFiltersExcludedPassThroughChannel(t *testing.T) {

@@ -28,6 +28,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
 
@@ -230,7 +231,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	}
 
 	request := buildTestRequest(testModel, endpointType, channel, isStream)
-	if channel.GetSetting().TransportMode == dto.TransportModeTransparent {
+	if model_setting.ResolveRelayBehavior(channel.Id, channel.GetSetting(), channel.GetOtherSettings(), model_setting.GetGlobalSettings()) == model_setting.RelayBehaviorTransparent {
 		payload, marshalErr := common.Marshal(request)
 		if marshalErr != nil {
 			return testResult{context: c, localErr: marshalErr}

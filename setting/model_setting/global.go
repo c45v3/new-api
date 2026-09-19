@@ -90,25 +90,33 @@ func (s *GlobalSettings) IsPassThroughExcluded(channelID int) bool {
 	return slices.Contains(s.PassThroughRequestExcludedChannels, channelID)
 }
 
-// IsPassThroughEnabled resolves the global request pass-through setting for a
-// channel. An excluded channel always wins over its own channel setting.
-func (s *GlobalSettings) IsPassThroughEnabled(channelID int, channelSettingEnabled bool) bool {
-	if s != nil && s.IsPassThroughExcluded(channelID) {
-		return false
-	}
-	return (s != nil && s.PassThroughRequestEnabled) || channelSettingEnabled
+// IsRequestBodyPassthroughEnabled applies only the global body policy.
+func (s *GlobalSettings) IsRequestBodyPassthroughEnabled(channelID int) bool {
+	return s != nil && s.PassThroughRequestEnabled && !s.IsPassThroughExcluded(channelID)
 }
 
-// EffectiveTransportMode gives an explicit channel mode precedence over legacy
-// flags. Inherit keeps global exclusions ahead of the old channel boolean.
-func (s *GlobalSettings) EffectiveTransportMode(channelID int, settings dto.ChannelSettings) dto.TransportMode {
-	if settings.TransportMode != "" && settings.TransportMode != dto.TransportModeInherit {
-		return settings.TransportMode
+type RelayBehavior int
+
+const (
+	RelayBehaviorStandard RelayBehavior = iota
+	RelayBehaviorBodyPassthrough
+	RelayBehaviorTransparent
+	RelayBehaviorClaudeCode
+)
+
+// ResolveRelayBehavior is the single precedence rule for channel behavior.
+// Disguise always requires the mutable pipeline, even for conflicting old data.
+func ResolveRelayBehavior(channelID int, settings dto.ChannelSettings, other dto.ChannelOtherSettings, global *GlobalSettings) RelayBehavior {
+	if other.DisguiseAsClaudeCode {
+		return RelayBehaviorClaudeCode
 	}
-	if s.IsPassThroughEnabled(channelID, settings.PassThroughBodyEnabled) {
-		return dto.TransportModeBodyPassthrough
+	if settings.TransparentRelay {
+		return RelayBehaviorTransparent
 	}
-	return dto.TransportModeConvert
+	if global.IsRequestBodyPassthroughEnabled(channelID) {
+		return RelayBehaviorBodyPassthrough
+	}
+	return RelayBehaviorStandard
 }
 
 // ValidatePassThroughRequestExcludedChannels validates the JSON persisted by

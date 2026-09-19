@@ -17,15 +17,21 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	hostdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/andybalholm/brotli"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -41,7 +47,7 @@ func transparentTestJSON(t *testing.T, value any) *string {
 
 func transparentTestChannel(t *testing.T, base string, kind int) *model.Channel {
 	t.Helper()
-	return &model.Channel{Id: 71, Type: kind, Key: "channel-secret", BaseURL: &base, Setting: transparentTestJSON(t, dto.ChannelSettings{TransportMode: dto.TransportModeTransparent, TransparentBilling: "external"})}
+	return &model.Channel{Id: 71, Type: kind, Key: "channel-secret", BaseURL: &base, Setting: transparentTestJSON(t, dto.ChannelSettings{TransparentRelay: true, TransparentBilling: "external"})}
 }
 
 func transparentTestGateway(t *testing.T, selected *model.Channel) *httptest.Server {
@@ -124,7 +130,6 @@ func TestTransparentRelayChannelAuthentication(t *testing.T) {
 		{"anthropic", constant.ChannelTypeAnthropic, "X-Api-Key", "channel-secret"},
 		{"gemini", constant.ChannelTypeGemini, "X-Goog-Api-Key", "channel-secret"},
 		{"azure", constant.ChannelTypeAzure, "Api-Key", "channel-secret"},
-		{"custom", constant.ChannelTypeCustom, "Authorization", "Bearer channel-secret"},
 		{"newapi", constant.ChannelTypeNewAPI, "Authorization", "Bearer channel-secret"},
 		{"deepseek", constant.ChannelTypeDeepSeek, "Authorization", "Bearer channel-secret"},
 		{"mistral", constant.ChannelTypeMistral, "Authorization", "Bearer channel-secret"},
@@ -332,47 +337,64 @@ func TestTransparentRelayPropagatesCancellation(t *testing.T) {
 	}
 }
 
-func TestTransparentRelayDiskBodyAndGzipWireBytes(t *testing.T) {
+func transparentTestEncode(t *testing.T, encoding string, raw []byte) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	var writer io.WriteCloser
+	switch encoding {
+	case "gzip":
+		var err error
+		writer, err = gzip.NewWriterLevel(&buffer, gzip.NoCompression)
+		require.NoError(t, err)
+	case "br":
+		writer = brotli.NewWriterLevel(&buffer, 0)
+	case "zstd":
+		var err error
+		writer, err = zstd.NewWriter(&buffer, zstd.WithEncoderLevel(zstd.SpeedFastest))
+		require.NoError(t, err)
+	default:
+		return raw
+	}
+	_, err := writer.Write(raw)
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	return buffer.Bytes()
+}
+
+func TestTransparentRelayDiskBodyAndCompressedWireBytes(t *testing.T) {
 	previous := common.GetDiskCacheConfig()
 	common.SetDiskCacheConfig(common.DiskCacheConfig{Enabled: true, ThresholdMB: 1, MaxSizeMB: 64, Path: t.TempDir()})
 	defer common.SetDiskCacheConfig(previous)
 	raw := bytes.Repeat([]byte("opaque payload, not a typed DTO\n"), 80000)
-	var compressed bytes.Buffer
-	compressor, err := gzip.NewWriterLevel(&compressed, gzip.NoCompression)
-	require.NoError(t, err)
-	_, err = compressor.Write(raw)
-	require.NoError(t, err)
-	require.NoError(t, compressor.Close())
-	for _, encoded := range []bool{false, true} {
-		t.Run(fmt.Sprint(encoded), func(t *testing.T) {
-			wire := raw
-			if encoded {
-				wire = compressed.Bytes()
-			}
+	for _, encoding := range []string{"", "gzip", "br", "zstd"} {
+		t.Run(encoding, func(t *testing.T) {
+			wire := transparentTestEncode(t, encoding, raw)
 			type observation struct {
 				body     []byte
 				encoding string
-				files    int
 				err      error
 			}
 			observed := make(chan observation, 1)
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				body, err := io.ReadAll(r.Body)
-				files, dirErr := os.ReadDir(common.GetDiskCacheDir())
-				if err == nil {
-					err = dirErr
+				if encoding == "" || encoding == "gzip" {
+					files, diskErr := os.ReadDir(common.GetDiskCacheDir())
+					assert.NoError(t, diskErr)
+					assert.NotEmpty(t, files, "large wire representation must use disk storage")
 				}
-				observed <- observation{body, r.Header.Get("Content-Encoding"), len(files), err}
+				observed <- observation{body, r.Header.Get("Content-Encoding"), err}
 				w.Header().Set("Content-Type", "application/octet-stream")
-				w.Header().Set("Content-Encoding", "gzip")
-				_, _ = w.Write(compressed.Bytes())
+				if encoding != "" {
+					w.Header().Set("Content-Encoding", encoding)
+				}
+				_, _ = w.Write(wire)
 			}))
 			defer upstream.Close()
 			gateway := transparentTestGateway(t, transparentTestChannel(t, upstream.URL, constant.ChannelTypeOpenAI))
 			req, err := http.NewRequest(http.MethodPost, gateway.URL+"/opaque", bytes.NewReader(wire))
 			require.NoError(t, err)
-			if encoded {
-				req.Header.Set("Content-Encoding", "gzip")
+			if encoding != "" {
+				req.Header.Set("Content-Encoding", encoding)
 			}
 			response, err := transparentTestClient(t).Do(req)
 			require.NoError(t, err)
@@ -380,18 +402,13 @@ func TestTransparentRelayDiskBodyAndGzipWireBytes(t *testing.T) {
 			response.Body.Close()
 			require.NoError(t, err)
 			require.Equal(t, http.StatusOK, response.StatusCode)
-			assert.Equal(t, "gzip", response.Header.Get("Content-Encoding"))
-			assert.Equal(t, compressed.Bytes(), responseWire)
+			assert.Equal(t, encoding, response.Header.Get("Content-Encoding"))
+			assert.Equal(t, wire, responseWire)
 			got := <-observed
 			require.NoError(t, got.err)
 			assert.Equal(t, wire, got.body)
-			if encoded {
-				assert.Equal(t, "gzip", got.encoding)
-			} else {
-				assert.Empty(t, got.encoding)
-			}
-			assert.Positive(t, got.files, "large request must actually use disk storage")
-			gateway.Close() // Wait for middleware cleanup, not merely the last response bytes.
+			assert.Equal(t, encoding, got.encoding)
+			gateway.Close()
 			files, err := os.ReadDir(common.GetDiskCacheDir())
 			require.NoError(t, err)
 			assert.Empty(t, files, "body cleanup must release disk files")
@@ -399,28 +416,31 @@ func TestTransparentRelayDiskBodyAndGzipWireBytes(t *testing.T) {
 	}
 }
 
-func TestTransparentRelayModePrecedence(t *testing.T) {
+func TestTransparentRelayBehaviorPrecedence(t *testing.T) {
 	cases := []struct {
-		name                     string
-		global, excluded, legacy bool
-		mode, want               dto.TransportMode
+		name                                            string
+		global, excluded, legacy, transparent, disguise bool
+		want                                            model_setting.RelayBehavior
 	}{
-		{"legacy default", false, false, false, "", dto.TransportModeConvert},
-		{"global inherited", true, false, false, dto.TransportModeInherit, dto.TransportModeBodyPassthrough},
-		{"channel legacy", false, false, true, "", dto.TransportModeBodyPassthrough},
-		{"excluded global", true, true, false, "", dto.TransportModeConvert},
-		{"excluded channel legacy", false, true, true, dto.TransportModeInherit, dto.TransportModeConvert},
-		{"explicit convert", true, false, true, dto.TransportModeConvert, dto.TransportModeConvert},
-		{"explicit body beats exclusion", false, true, false, dto.TransportModeBodyPassthrough, dto.TransportModeBodyPassthrough},
-		{"transparent beats exclusion", true, true, true, dto.TransportModeTransparent, dto.TransportModeTransparent},
+		{"standard", false, false, false, false, false, model_setting.RelayBehaviorStandard},
+		{"global body", true, false, false, false, false, model_setting.RelayBehaviorBodyPassthrough},
+		{"excluded global", true, true, false, false, false, model_setting.RelayBehaviorStandard},
+		{"legacy boolean ignored", false, false, true, false, false, model_setting.RelayBehaviorStandard},
+		{"legacy cannot override exclusion", true, true, true, false, false, model_setting.RelayBehaviorStandard},
+		{"transparent overrides global", true, false, false, true, false, model_setting.RelayBehaviorTransparent},
+		{"transparent overrides exclusion", true, true, false, true, false, model_setting.RelayBehaviorTransparent},
+		{"disguise overrides global", true, false, false, false, true, model_setting.RelayBehaviorClaudeCode},
+		{"disguise overrides transparent", true, true, true, true, true, model_setting.RelayBehaviorClaudeCode},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			settings := model_setting.GlobalSettings{PassThroughRequestEnabled: tc.global}
+			global := model_setting.GlobalSettings{PassThroughRequestEnabled: tc.global}
 			if tc.excluded {
-				settings.PassThroughRequestExcludedChannels = []int{71}
+				global.PassThroughRequestExcludedChannels = []int{71}
 			}
-			assert.Equal(t, tc.want, settings.EffectiveTransportMode(71, dto.ChannelSettings{TransportMode: tc.mode, PassThroughBodyEnabled: tc.legacy}))
+			settings := dto.ChannelSettings{TransparentRelay: tc.transparent, PassThroughBodyEnabled: tc.legacy}
+			other := dto.ChannelOtherSettings{DisguiseAsClaudeCode: tc.disguise}
+			assert.Equal(t, tc.want, model_setting.ResolveRelayBehavior(71, settings, other, &global))
 		})
 	}
 }
@@ -431,17 +451,16 @@ func TestTransparentRelayRejectsIncompatibleConfigurationBeforeUpstream(t *testi
 		mutate func(*model.Channel)
 	}{
 		{"billing acknowledgement", func(c *model.Channel) {
-			c.Setting = transparentTestJSON(t, dto.ChannelSettings{TransportMode: dto.TransportModeTransparent})
+			c.Setting = transparentTestJSON(t, dto.ChannelSettings{TransparentRelay: true})
 		}},
 		{"format", func(c *model.Channel) {
-			c.Setting = transparentTestJSON(t, dto.ChannelSettings{TransportMode: dto.TransportModeTransparent, TransparentBilling: "external", ForceFormat: true})
+			c.Setting = transparentTestJSON(t, dto.ChannelSettings{TransparentRelay: true, TransparentBilling: "external", ForceFormat: true})
 		}},
 		{"system prompt", func(c *model.Channel) {
-			c.Setting = transparentTestJSON(t, dto.ChannelSettings{TransportMode: dto.TransportModeTransparent, TransparentBilling: "external", SystemPrompt: "mutate"})
+			c.Setting = transparentTestJSON(t, dto.ChannelSettings{TransparentRelay: true, TransparentBilling: "external", SystemPrompt: "mutate"})
 		}},
 		{"param override", func(c *model.Channel) { c.ParamOverride = transparentTestJSON(t, map[string]any{"temperature": 1}) }},
 		{"model mapping", func(c *model.Channel) { c.ModelMapping = transparentTestJSON(t, map[string]string{"a": "b"}) }},
-		{"disguise", func(c *model.Channel) { c.OtherSettings = `{"disguise_as_claude_code":true}` }},
 		{"disable store", func(c *model.Channel) { c.OtherSettings = `{"disable_store":true}` }},
 		{"advanced custom", func(c *model.Channel) { c.OtherSettings = `{"advanced_custom":{}}` }},
 	}
@@ -462,16 +481,18 @@ func TestTransparentRelayRejectsIncompatibleConfigurationBeforeUpstream(t *testi
 	}
 }
 
-// Legacy modes still use DTO validation; only transparent mode may forward
-// opaque representations. Successful legacy billing paths have separate suites.
-func TestTransparentRelayDoesNotBypassLegacyValidation(t *testing.T) {
-	for _, mode := range []dto.TransportMode{dto.TransportModeConvert, dto.TransportModeBodyPassthrough} {
-		t.Run(string(mode), func(t *testing.T) {
+func TestTransparentRelayDoesNotBypassMutableValidation(t *testing.T) {
+	global := model_setting.GetGlobalSettings()
+	previous := *global
+	t.Cleanup(func() { *global = previous })
+	for _, passthrough := range []bool{false, true} {
+		t.Run(fmt.Sprint(passthrough), func(t *testing.T) {
+			*global = model_setting.GlobalSettings{PassThroughRequestEnabled: passthrough}
 			var calls atomic.Int32
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); w.WriteHeader(http.StatusNoContent) }))
 			defer upstream.Close()
 			selected := transparentTestChannel(t, upstream.URL, constant.ChannelTypeOpenAI)
-			selected.Setting = transparentTestJSON(t, dto.ChannelSettings{TransportMode: mode})
+			selected.Setting = transparentTestJSON(t, dto.ChannelSettings{})
 			gateway := transparentTestGateway(t, selected)
 			response, err := transparentTestClient(t).Post(gateway.URL+"/v1/chat/completions", "application/json", strings.NewReader("not JSON"))
 			require.NoError(t, err)
@@ -482,84 +503,14 @@ func TestTransparentRelayDoesNotBypassLegacyValidation(t *testing.T) {
 	}
 }
 
-func TestTransparentRelayPreservesAuthenticationAndRouting(t *testing.T) {
-	previousDB, previousRedis, previousCache := model.DB, common.RedisEnabled, common.MemoryCacheEnabled
-	previousType := common.MainDatabaseType()
-	previousLogDB, previousLogType, previousMaster := model.LOG_DB, common.LogDatabaseType(), common.IsMasterNode
-	t.Setenv("LOG_SQL_DSN", "")
-	db, err := gorm.Open(sqlite.Open(t.TempDir()+"/relay.db"), &gorm.Config{})
-	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.Channel{}))
-	model.DB, common.RedisEnabled, common.MemoryCacheEnabled = db, false, false
-	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
-	common.IsMasterNode = false
-	require.NoError(t, model.InitLogDB())
-	t.Cleanup(func() {
-		model.DB, common.RedisEnabled, common.MemoryCacheEnabled = previousDB, previousRedis, previousCache
-		common.SetMainDatabaseType(previousType)
-		require.NoError(t, model.InitLogDB())
-		model.LOG_DB, common.IsMasterNode = previousLogDB, previousMaster
-		common.SetLogDatabaseType(previousLogType)
-		sqlDB, err := db.DB()
-		require.NoError(t, err)
-		require.NoError(t, sqlDB.Close())
-	})
-	user := model.User{Username: "transparent-owner", Role: common.RoleAdminUser, Status: common.UserStatusEnabled, Group: "default", Quota: 12345, AffCode: "transparent-owner"}
-	require.NoError(t, db.Create(&user).Error)
-	token := model.Token{UserId: user.Id, Key: "transparentclientsecret", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 12345}
-	require.NoError(t, db.Create(&token).Error)
-	payload := "{ \"model\":\"test-model\", \"messages\":false, \"unknown\":123 }\n"
-	var calls atomic.Int32
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
-		body, readErr := io.ReadAll(r.Body)
-		assert.NoError(t, readErr)
-		assert.Equal(t, payload, string(body))
-		assert.Equal(t, "Bearer channel-secret", r.Header.Get("Authorization"))
-		assert.Equal(t, "OpenCode", r.Header.Get("X-Title"))
-		w.WriteHeader(http.StatusCreated)
-		_, _ = io.WriteString(w, "unparsed provider response")
-	}))
-	defer upstream.Close()
-	selected := transparentTestChannel(t, upstream.URL, constant.ChannelTypeOpenRouter)
-	selected.Status, selected.Models, selected.Group = common.ChannelStatusEnabled, "test-model", "default"
-	require.NoError(t, db.Create(selected).Error)
-	router := gin.New()
-	router.Use(middleware.BodyStorageCleanup(), middleware.DecompressRequestMiddleware())
-	router.POST("/v1/chat/completions", middleware.TokenAuth(), middleware.Distribute(), func(c *gin.Context) { Relay(c, types.RelayFormatOpenAI) })
-	for _, tc := range []struct {
-		name, credential string
-		status           int
-	}{
-		{"missing credential", "", http.StatusUnauthorized},
-		{"invalid credential", "Bearer invalid", http.StatusUnauthorized},
-		{"authorized selected channel", "Bearer sk-transparentclientsecret-71", http.StatusCreated},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(payload))
-			request.Header.Set("Content-Type", "application/json")
-			request.Header.Set("Authorization", tc.credential)
-			request.Header.Set("X-Title", "OpenCode")
-			response := httptest.NewRecorder()
-			router.ServeHTTP(response, request)
-			require.Equal(t, tc.status, response.Code, response.Body.String())
-			if tc.status == http.StatusCreated {
-				assert.Equal(t, "unparsed provider response", response.Body.String())
-			}
-		})
-	}
-	assert.EqualValues(t, 1, calls.Load())
-	require.NoError(t, db.First(&user, user.Id).Error)
-	require.NoError(t, db.First(&token, token.Id).Error)
-	assert.Equal(t, 12345, user.Quota)
-	assert.Equal(t, 12345, token.RemainQuota)
-	assert.Zero(t, token.UsedQuota)
-}
-
 func TestTransparentRelayKeepsLegacyRequestConversion(t *testing.T) {
+	global := model_setting.GetGlobalSettings()
+	previous := *global
+	t.Cleanup(func() { *global = previous })
 	payload := "{ \"model\":\"foo\", \"messages\":[{\"role\":\"user\",\"content\":\"hi\"}], \"future_field\":true }\n"
-	for _, mode := range []dto.TransportMode{dto.TransportModeConvert, dto.TransportModeBodyPassthrough} {
-		t.Run(string(mode), func(t *testing.T) {
+	for _, passthrough := range []bool{false, true} {
+		t.Run(fmt.Sprint(passthrough), func(t *testing.T) {
+			*global = model_setting.GlobalSettings{PassThroughRequestEnabled: passthrough}
 			upstreamBody := make(chan []byte, 1)
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				body, err := io.ReadAll(r.Body)
@@ -571,7 +522,7 @@ func TestTransparentRelayKeepsLegacyRequestConversion(t *testing.T) {
 			}))
 			defer upstream.Close()
 			selected := transparentTestChannel(t, upstream.URL, constant.ChannelTypeOpenAI)
-			selected.Setting = transparentTestJSON(t, dto.ChannelSettings{TransportMode: mode})
+			selected.Setting = transparentTestJSON(t, dto.ChannelSettings{})
 			selected.ModelMapping = transparentTestJSON(t, map[string]string{"foo": "bar"})
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(payload))
@@ -585,7 +536,7 @@ func TestTransparentRelayKeepsLegacyRequestConversion(t *testing.T) {
 			require.NotNil(t, apiErr)
 			assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
 			body := <-upstreamBody
-			if mode == dto.TransportModeBodyPassthrough {
+			if passthrough {
 				assert.Equal(t, payload, string(body))
 			} else {
 				var converted map[string]any
@@ -594,5 +545,262 @@ func TestTransparentRelayKeepsLegacyRequestConversion(t *testing.T) {
 			}
 			assert.Equal(t, "bar", info.UpstreamModelName)
 		})
+	}
+}
+
+func TestTransparentRelaySaveValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		kind     int
+		disguise bool
+		valid    bool
+	}{
+		{"supported", constant.ChannelTypeOpenRouter, false, true},
+		{"unsupported", constant.ChannelTypeAws, false, false},
+		{"custom", constant.ChannelTypeCustom, false, false},
+		{"conflict", constant.ChannelTypeAnthropic, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			channel := transparentTestChannel(t, "https://example.com", tc.kind)
+			if tc.disguise {
+				channel.OtherSettings = `{"disguise_as_claude_code":true}`
+			}
+			if tc.valid {
+				require.NoError(t, channel.ValidateSettings())
+			} else {
+				require.Error(t, channel.ValidateSettings())
+			}
+		})
+	}
+}
+
+func TestTransparentRelayLegacySettingsRoundTrip(t *testing.T) {
+	for _, tc := range []struct {
+		name, raw   string
+		transparent bool
+	}{
+		{"transparent", `{"transport_mode":"transparent"}`, true},
+		{"explicit false wins", `{"transport_mode":"transparent","transparent_relay":false}`, false},
+		{"convert", `{"transport_mode":"convert"}`, false},
+		{"inherit", `{"transport_mode":"inherit"}`, false},
+		{"body", `{"transport_mode":"body_passthrough","pass_through_body_enabled":true}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var settings map[string]any
+			require.NoError(t, common.UnmarshalJsonStr(tc.raw, &settings))
+			settings["transparent_billing"] = "external"
+			settings["future_setting"] = map[string]any{"enabled": true, "value": "preserved"}
+			channel := &model.Channel{Type: constant.ChannelTypeOpenRouter, Setting: transparentTestJSON(t, settings)}
+			assert.Equal(t, tc.transparent, channel.GetSetting().TransparentRelay)
+			for _, enabled := range []bool{false, true} {
+				global := model_setting.GlobalSettings{PassThroughRequestEnabled: enabled}
+				want := model_setting.RelayBehaviorStandard
+				if enabled {
+					want = model_setting.RelayBehaviorBodyPassthrough
+				}
+				if tc.transparent {
+					want = model_setting.RelayBehaviorTransparent
+				}
+				assert.Equal(t, want, model_setting.ResolveRelayBehavior(71, channel.GetSetting(), dto.ChannelOtherSettings{}, &global))
+			}
+			require.NoError(t, channel.ValidateSettings())
+			var saved map[string]any
+			require.NoError(t, common.UnmarshalJsonStr(*channel.Setting, &saved))
+			assert.NotContains(t, saved, "transport_mode")
+			assert.Equal(t, settings["future_setting"], saved["future_setting"])
+			assert.Equal(t, tc.transparent, channel.GetSetting().TransparentRelay)
+		})
+	}
+}
+
+func TestMutableRelayReleasesCompressedStorageBeforeProcessing(t *testing.T) {
+	previousDB, previousCache := model.DB, common.MemoryCacheEnabled
+	previousType := common.MainDatabaseType()
+	db, err := gorm.Open(sqlite.Open(t.TempDir()+"/storage.db"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Channel{}))
+	model.DB, common.MemoryCacheEnabled = db, false
+	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
+	global := model_setting.GetGlobalSettings()
+	previousGlobal, previousDisk := *global, common.GetDiskCacheConfig()
+	t.Cleanup(func() {
+		model.DB, common.MemoryCacheEnabled = previousDB, previousCache
+		common.SetMainDatabaseType(previousType)
+		*global = previousGlobal
+		common.SetDiskCacheConfig(previousDisk)
+		sqlDB, err := db.DB()
+		require.NoError(t, err)
+		require.NoError(t, sqlDB.Close())
+	})
+	common.SetDiskCacheConfig(common.DiskCacheConfig{Enabled: true, ThresholdMB: 1, MaxSizeMB: 64, Path: t.TempDir()})
+	channel := transparentTestChannel(t, "https://example.com", constant.ChannelTypeOpenAI)
+	channel.Setting = transparentTestJSON(t, dto.ChannelSettings{})
+	channel.Status = common.ChannelStatusEnabled
+	channel.Models = "test-model"
+	channel.Group = "default"
+	require.NoError(t, db.Create(channel).Error)
+	// Valid routing JSON but invalid typed messages: Relay must reject it without
+	// reaching billing, after Distributor has already released the wire storage.
+	payload := []byte(`{"model":"test-model","messages":false,"padding":"` + strings.Repeat("x", 2<<20) + `"}`)
+	for _, passthrough := range []bool{false, true} {
+		*global = model_setting.GlobalSettings{PassThroughRequestEnabled: passthrough}
+		for _, encoding := range []string{"gzip", "br", "zstd"} {
+			t.Run(fmt.Sprintf("%t/%s", passthrough, encoding), func(t *testing.T) {
+				var original common.BodyStorage
+				var originalFiles []os.DirEntry
+				router := gin.New()
+				router.Use(middleware.BodyStorageCleanup(), middleware.DecompressRequestMiddleware())
+				router.Use(func(c *gin.Context) {
+					value, exists := c.Get(common.KeyOriginalBodyStorage)
+					require.True(t, exists)
+					var ok bool
+					original, ok = value.(common.BodyStorage)
+					require.True(t, ok)
+					originalFiles, err = os.ReadDir(common.GetDiskCacheDir())
+					require.NoError(t, err)
+					if encoding == "gzip" {
+						require.True(t, original.IsDisk())
+						require.NotEmpty(t, originalFiles)
+					}
+					service.GetChannelConstraints(c).AddPin(hostdto.ChannelPin{ChannelId: channel.Id, Source: hostdto.PinSourceToken, Rank: hostdto.PinRankToken, RetryMode: hostdto.PinRetrySingleAttempt})
+					c.Next()
+				})
+				reached := false
+				router.POST("/v1/chat/completions", middleware.Distribute(), func(c *gin.Context) {
+					reached = true
+					_, err := original.NewReader()
+					require.ErrorIs(t, err, common.ErrStorageClosed, "release must happen before mutable Relay starts")
+					value, _ := c.Get(common.KeyOriginalBodyStorage)
+					assert.Nil(t, value)
+					assert.Empty(t, c.GetString(common.KeyOriginalContentEncoding))
+					for _, file := range originalFiles {
+						_, err := os.Stat(common.GetDiskCacheDir() + "/" + file.Name())
+						assert.ErrorIs(t, err, os.ErrNotExist)
+					}
+					decoded, err := common.GetBodyStorage(c)
+					require.NoError(t, err)
+					body, err := decoded.Bytes()
+					require.NoError(t, err)
+					assert.Equal(t, payload, body)
+					Relay(c, types.RelayFormatOpenAI)
+				})
+				request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(transparentTestEncode(t, encoding, payload)))
+				request.Header.Set("Content-Type", "application/json")
+				request.Header.Set("Content-Encoding", encoding)
+				response := httptest.NewRecorder()
+				router.ServeHTTP(response, request)
+				require.True(t, reached, response.Body.String())
+				assert.Equal(t, http.StatusBadRequest, response.Code)
+				files, err := os.ReadDir(common.GetDiskCacheDir())
+				require.NoError(t, err)
+				assert.Empty(t, files)
+			})
+		}
+	}
+}
+
+func TestMutableRelayRetriesPastTransparentChannel(t *testing.T) {
+	previousDB, previousLogDB := model.DB, model.LOG_DB
+	previousType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
+	previousCache, previousRedis, previousMaster := common.MemoryCacheEnabled, common.RedisEnabled, common.IsMasterNode
+	previousRetry, previousCount, previousErrorLog := common.RetryTimes, constant.CountToken, constant.ErrorLogEnabled
+	previousRatios := ratio_setting.ModelRatio2JSONString()
+	previousGroups := ratio_setting.GroupRatio2JSONString()
+	previousFree := operation_setting.GetQuotaSetting().EnableFreeModelPreConsume
+	previousRetryCodes := operation_setting.AutomaticRetryStatusCodeRanges
+	global := model_setting.GetGlobalSettings()
+	previousGlobal := *global
+	t.Setenv("LOG_SQL_DSN", "")
+	db, err := gorm.Open(sqlite.Open(t.TempDir()+"/retry.db"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
+	model.DB = db
+	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
+	common.RedisEnabled, common.IsMasterNode = false, false
+	require.NoError(t, model.InitLogDB())
+	t.Cleanup(func() {
+		model.DB, common.MemoryCacheEnabled = previousDB, previousCache
+		common.SetMainDatabaseType(previousType)
+		require.NoError(t, model.InitLogDB())
+		model.LOG_DB = previousLogDB
+		common.SetLogDatabaseType(previousLogType)
+		common.RedisEnabled, common.IsMasterNode = previousRedis, previousMaster
+		common.RetryTimes, constant.CountToken, constant.ErrorLogEnabled = previousRetry, previousCount, previousErrorLog
+		operation_setting.GetQuotaSetting().EnableFreeModelPreConsume = previousFree
+		operation_setting.AutomaticRetryStatusCodeRanges = previousRetryCodes
+		*global = previousGlobal
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(previousRatios))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(previousGroups))
+		if previousCache && previousDB != nil {
+			model.InitChannelCache()
+		}
+		sqlDB, err := db.DB()
+		require.NoError(t, err)
+		require.NoError(t, sqlDB.Close())
+	})
+	common.RetryTimes, constant.CountToken, constant.ErrorLogEnabled = 1, false, false
+	operation_setting.GetQuotaSetting().EnableFreeModelPreConsume = false
+	operation_setting.AutomaticRetryStatusCodeRanges = []operation_setting.StatusCodeRange{{Start: 503, End: 503}}
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"transparent-retry":0}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1}`))
+	var calls [3]atomic.Int32
+	var channels [3]*model.Channel
+	for index, name := range []string{"standard-a", "transparent-b", "standard-c"} {
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls[index].Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			status := http.StatusBadRequest
+			if index == 0 {
+				status = http.StatusServiceUnavailable
+			}
+			w.WriteHeader(status)
+			_, _ = fmt.Fprintf(w, `{"error":{"message":%q,"type":"upstream_error"}}`, name)
+		}))
+		t.Cleanup(upstream.Close)
+		channel := &model.Channel{
+			Id: index + 1, Type: constant.ChannelTypeOpenAI, Name: name,
+			Key: "channel-secret", BaseURL: &upstream.URL, Status: common.ChannelStatusEnabled,
+			Models: "transparent-retry", Group: "default", AutoBan: common.GetPointer(0),
+			Priority: common.GetPointer(int64(30 - index*10)), Weight: common.GetPointer(uint(100)),
+			Setting: transparentTestJSON(t, dto.ChannelSettings{TransparentRelay: index == 1, TransparentBilling: "external"}),
+		}
+		require.NoError(t, db.Create(channel).Error)
+		require.NoError(t, db.Create(&model.Ability{
+			Group: "default", Model: "transparent-retry", ChannelId: channel.Id,
+			Enabled: true, Priority: channel.Priority, Weight: 100,
+		}).Error)
+		channels[index] = channel
+	}
+	for _, cached := range []bool{false, true} {
+		common.MemoryCacheEnabled = cached
+		if cached {
+			model.InitChannelCache()
+		}
+		for _, passthrough := range []bool{false, true} {
+			t.Run(fmt.Sprintf("cache=%t/body=%t", cached, passthrough), func(t *testing.T) {
+				*global = model_setting.GlobalSettings{PassThroughRequestEnabled: passthrough}
+				for i := range calls {
+					calls[i].Store(0)
+				}
+				router := gin.New()
+				router.Use(middleware.BodyStorageCleanup())
+				router.POST("/v1/chat/completions", func(c *gin.Context) {
+					c.Set(string(constant.ContextKeyUserGroup), "default")
+					c.Set(string(constant.ContextKeyUsingGroup), "default")
+					c.Set(string(constant.ContextKeyTokenGroup), "default")
+					require.Nil(t, middleware.SetupContextForSelectedChannel(c, channels[0], "transparent-retry"))
+					Relay(c, types.RelayFormatOpenAI)
+				})
+				request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"transparent-retry","messages":[{"role":"user","content":"hello"}]}`))
+				request.Header.Set("Content-Type", "application/json")
+				response := httptest.NewRecorder()
+				router.ServeHTTP(response, request)
+				assert.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
+				assert.Contains(t, response.Body.String(), "standard-c")
+				assert.EqualValues(t, 1, calls[0].Load())
+				assert.Zero(t, calls[1].Load(), "transparent channel must not consume the only retry")
+				assert.EqualValues(t, 1, calls[2].Load())
+			})
+		}
 	}
 }

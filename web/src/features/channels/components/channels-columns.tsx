@@ -20,7 +20,6 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import {
-  AlertTriangle,
   ChevronDown,
   ChevronRight,
   ListOrdered,
@@ -72,6 +71,7 @@ import {
   parseModelsList,
   parseGroupsList,
   parseChannelSettings,
+  parseChannelOtherSettings,
   channelsQueryKeys,
   handleUpdateChannelField,
   handleUpdateTagField,
@@ -698,19 +698,16 @@ export function useChannelsColumns(
 
           // Regular channel row
           const settings = parseChannelSettings(channel.setting)
-          const transportMode = settings.transport_mode || 'inherit'
-          const isPassThrough =
-            transportMode === 'body_passthrough' ||
-            (transportMode === 'inherit' &&
-              settings.pass_through_body_enabled === true)
+          const isDisguise =
+            parseChannelOtherSettings(channel.settings)
+              .disguise_as_claude_code === true
+          const isTransparent = Object.hasOwn(settings, 'transparent_relay')
+            ? settings.transparent_relay === true
+            : settings.transport_mode === 'transparent'
           const hasParamOverride = Boolean(channel.param_override?.trim())
-          let transportLabel = t('Request Body Passthrough')
-          if (transportMode === 'transparent') {
-            transportLabel = t('Transparent Relay')
-          }
-          if (transportMode === 'convert') {
-            transportLabel = t('Convert requests')
-          }
+          const relayLabel = isDisguise
+            ? t('Disguise as Claude Code')
+            : t('Transparent Relay')
 
           return (
             <div className='flex max-w-full min-w-0 items-center gap-2'>
@@ -721,29 +718,13 @@ export function useChannelsColumns(
                     className='font-medium'
                     maxWidth='max-w-full'
                   />
-                  {transportMode !== 'inherit' && (
+                  {(isDisguise || isTransparent) && (
                     <StatusBadge
-                      label={transportLabel}
+                      label={relayLabel}
                       variant='blue'
                       size='sm'
                       copyable={false}
                     />
-                  )}
-                  {isPassThrough && (
-                    <TooltipProvider delay={100}>
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <AlertTriangle className='h-3.5 w-3.5 flex-shrink-0 text-amber-500' />
-                          }
-                        />
-                        <TooltipContent side='top'>
-                          {t(
-                            'Request body passthrough leaves response processing and billing enabled.'
-                          )}
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
                   )}
                   {hasParamOverride && (
                     <TooltipProvider delay={100}>

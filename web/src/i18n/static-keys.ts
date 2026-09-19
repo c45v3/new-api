@@ -548,6 +548,10 @@ export const STATIC_I18N_KEYS = [
 
   // Channel upstream updates
   'Confirm external billing for Transparent Relay',
+  'Transparent Relay cannot be used together with Claude Code disguise because Claude Code disguise modifies the request.',
+  'Transparent Relay is not supported for this channel type.',
+  'Transparent Relay capabilities are unavailable. Try again before enabling it.',
+  'Transparent Relay requires disabling model mapping, parameter overrides, system prompts, response conversion, disguise, disable-store, and advanced custom conversion.',
   'No processable upstream model updates for this channel',
   'Upstream model updates applied: {{added}} added, {{removed}} removed, {{ignored}} ignored this time, {{totalIgnored}} total ignored models',
   'Batch processing failed',

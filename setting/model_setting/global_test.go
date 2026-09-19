@@ -9,63 +9,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGlobalSettingsIsPassThroughEnabled(t *testing.T) {
-	tests := []struct {
-		name                  string
-		globalEnabled         bool
-		excludedChannelIDs    []int
-		channelID             int
-		channelSettingEnabled bool
-		want                  bool
+func TestGlobalSettingsIsRequestBodyPassthroughEnabled(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		enabled   bool
+		excluded  []int
+		channelID int
+		want      bool
 	}{
-		{
-			name:       "disabled globally and on channel",
-			channelID:  1,
-			want:       false,
-		},
-		{
-			name:                  "enabled on channel",
-			channelID:             1,
-			channelSettingEnabled: true,
-			want:                  true,
-		},
-		{
-			name:          "enabled globally",
-			globalEnabled: true,
-			channelID:     1,
-			want:          true,
-		},
-		{
-			name:               "excluded channel overrides global setting",
-			globalEnabled:      true,
-			excludedChannelIDs: []int{1},
-			channelID:          1,
-			want:               false,
-		},
-		{
-			name:                  "excluded channel overrides channel setting",
-			excludedChannelIDs:    []int{1},
-			channelID:             1,
-			channelSettingEnabled: true,
-			want:                  false,
-		},
-		{
-			name:                  "other channels retain their settings",
-			excludedChannelIDs:    []int{1},
-			channelID:             2,
-			channelSettingEnabled: true,
-			want:                  true,
-		},
-	}
-
-	for _, tt := range tests {
+		{name: "disabled", channelID: 1},
+		{name: "enabled", enabled: true, channelID: 1, want: true},
+		{name: "excluded", enabled: true, excluded: []int{1}, channelID: 1},
+		{name: "other channel", enabled: true, excluded: []int{1}, channelID: 2, want: true},
+	} {
 		t.Run(tt.name, func(t *testing.T) {
 			settings := &GlobalSettings{
-				PassThroughRequestEnabled:          tt.globalEnabled,
-				PassThroughRequestExcludedChannels: tt.excludedChannelIDs,
+				PassThroughRequestEnabled:          tt.enabled,
+				PassThroughRequestExcludedChannels: tt.excluded,
 			}
-
-			assert.Equal(t, tt.want, settings.IsPassThroughEnabled(tt.channelID, tt.channelSettingEnabled))
+			assert.Equal(t, tt.want, settings.IsRequestBodyPassthroughEnabled(tt.channelID))
 		})
 	}
 }

@@ -94,8 +94,15 @@ func buildChannelListQuery(group string, statusFilter int, typeFilter int) *gorm
 }
 
 func GetChannelOps(c *gin.Context) {
+	transparentTypes := make([]int, 0)
+	for channelType := range constant.ChannelTypeDummy {
+		if _, supported := constant.GetTransparentCredentialSpec(channelType); supported {
+			transparentTypes = append(transparentTypes, channelType)
+		}
+	}
 	common.ApiSuccess(c, gin.H{
-		"retry_times": common.RetryTimes,
+		"retry_times":                     common.RetryTimes,
+		"transparent_relay_channel_types": transparentTypes,
 	})
 }
 

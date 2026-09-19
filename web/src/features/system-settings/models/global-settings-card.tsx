@@ -223,7 +223,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                   <FormLabel>{t('Request Body Passthrough')}</FormLabel>
                   <FormDescription>
                     {t(
-                      'Forward the request body unchanged; response processing and billing remain. Applies only to channels using Inherit mode.'
+                      'Globally forward only the request body unchanged. Headers, response processing, billing, and retries remain. Claude Code disguise and Transparent Relay take precedence.'
                     )}
                   </FormDescription>
                 </SettingsSwitchContent>
@@ -258,7 +258,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                 </FormControl>
                 <FormDescription>
                   {t(
-                    'These channel IDs disable legacy request body passthrough in Inherit mode. Explicit transport modes take precedence.'
+                    'Excluded channel IDs use standard relay instead of global request body passthrough. Exclusions do not override Transparent Relay or Claude Code disguise.'
                   )}
                 </FormDescription>
                 <FormMessage />

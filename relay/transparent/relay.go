@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -27,15 +28,15 @@ func Relay(c *gin.Context) {
 		c.AbortWithStatusJSON(status, gin.H{"error": gin.H{"type": "transparent_relay_error", "message": message}})
 	}
 	settings, ok := common.GetContextKeyType[dto.ChannelSettings](c, constant.ContextKeyChannelSetting)
-	if !ok || settings.TransportMode != dto.TransportModeTransparent {
+	other, _ := common.GetContextKeyType[dto.ChannelOtherSettings](c, constant.ContextKeyChannelOtherSetting)
+	if !ok || model_setting.ResolveRelayBehavior(common.GetContextKeyInt(c, constant.ContextKeyChannelId), settings, other, model_setting.GetGlobalSettings()) != model_setting.RelayBehaviorTransparent {
 		fail(http.StatusInternalServerError, "transparent relay requires selected channel settings")
 		return
 	}
-	if err := settings.ValidateTransportMode(); err != nil {
+	if err := settings.ValidateTransparentRelay(); err != nil {
 		fail(http.StatusBadRequest, err.Error())
 		return
 	}
-	other, _ := common.GetContextKeyType[dto.ChannelOtherSettings](c, constant.ContextKeyChannelOtherSetting)
 	mapping := common.GetContextKeyString(c, constant.ContextKeyChannelModelMapping)
 	var modelMapping map[string]string
 	if mapping != "" {
@@ -52,20 +53,8 @@ func Relay(c *gin.Context) {
 		fail(http.StatusBadRequest, "transparent relay supports HTTP API requests, not playground or protocol upgrades")
 		return
 	}
-	credentialHeader := "Authorization"
-	credentialPrefix := "Bearer "
-	switch common.GetContextKeyInt(c, constant.ContextKeyChannelType) {
-	case constant.ChannelTypeAnthropic:
-		credentialHeader, credentialPrefix = "X-Api-Key", ""
-	case constant.ChannelTypeGemini:
-		credentialHeader, credentialPrefix = "X-Goog-Api-Key", ""
-	case constant.ChannelTypeAzure:
-		credentialHeader, credentialPrefix = "Api-Key", ""
-	case constant.ChannelTypeOpenAI, constant.ChannelTypeOpenRouter, constant.ChannelTypeCustom,
-		constant.ChannelTypeNewAPI, constant.ChannelTypeDeepSeek, constant.ChannelTypeMistral,
-		constant.ChannelTypeXai, constant.ChannelTypeMoonshot, constant.ChannelTypeSiliconFlow,
-		constant.ChannelTypeVolcEngine, constant.ChannelTypeJina, constant.ChannelTypeCohere:
-	default:
+	credential, supported := constant.GetTransparentCredentialSpec(common.GetContextKeyInt(c, constant.ContextKeyChannelType))
+	if !supported {
 		fail(http.StatusBadRequest, "transparent relay does not support this channel credential scheme")
 		return
 	}
@@ -153,7 +142,7 @@ func Relay(c *gin.Context) {
 		fail(http.StatusBadRequest, "invalid transparent header override")
 		return
 	}
-	req.Header.Set(credentialHeader, credentialPrefix+apiKey)
+	req.Header.Set(credential.Header, credential.Prefix+apiKey)
 	if organization := common.GetContextKeyString(c, constant.ContextKeyChannelOrganization); organization != "" {
 		req.Header.Set("OpenAI-Organization", organization)
 	}

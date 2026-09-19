@@ -815,11 +815,13 @@ func (info *RelayInfo) GetChannelType() int {
 func (info *RelayInfo) IsPassThroughEnabled() bool {
 	channelID := 0
 	settings := dto.ChannelSettings{}
+	other := dto.ChannelOtherSettings{}
 	if info != nil && info.ChannelMeta != nil {
 		channelID = info.ChannelId
 		settings = info.ChannelSetting
+		other = info.ChannelOtherSettings
 	}
-	return model_setting.GetGlobalSettings().EffectiveTransportMode(channelID, settings) == dto.TransportModeBodyPassthrough
+	return model_setting.ResolveRelayBehavior(channelID, settings, other, model_setting.GetGlobalSettings()) == model_setting.RelayBehaviorBodyPassthrough
 }
 
 func (info *RelayInfo) GetIsStream() bool {
@@ -1063,7 +1065,7 @@ func RemoveDisabledFields(jsonData []byte, channelOtherSettings dto.ChannelOther
 	if len(channelIDs) > 0 {
 		channelID = channelIDs[0]
 	}
-	if model_setting.GetGlobalSettings().EffectiveTransportMode(channelID, channelSettings) == dto.TransportModeBodyPassthrough {
+	if model_setting.ResolveRelayBehavior(channelID, channelSettings, channelOtherSettings, model_setting.GetGlobalSettings()) == model_setting.RelayBehaviorBodyPassthrough {
 		return jsonData, nil
 	}
 	if !hasRemovableDisabledField(jsonData, channelOtherSettings) {

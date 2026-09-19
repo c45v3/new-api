@@ -74,11 +74,15 @@ func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewA
 
 func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	channelSettings, _ := common.GetContextKeyType[dto.ChannelSettings](c, constant.ContextKeyChannelSetting)
-	mode := model_setting.GetGlobalSettings().EffectiveTransportMode(common.GetContextKeyInt(c, constant.ContextKeyChannelId), channelSettings)
-	if mode == dto.TransportModeTransparent {
+	channelOtherSettings, _ := common.GetContextKeyType[dto.ChannelOtherSettings](c, constant.ContextKeyChannelOtherSetting)
+	behavior := model_setting.ResolveRelayBehavior(common.GetContextKeyInt(c, constant.ContextKeyChannelId), channelSettings, channelOtherSettings, model_setting.GetGlobalSettings())
+	if behavior == model_setting.RelayBehaviorTransparent {
 		transparent.Relay(c)
 		return
 	}
+	// Once billing/conversion begins, raw externally billed channels must not
+	// enter the retry pool. Apply the constraint before candidate selection.
+	service.GetChannelConstraints(c).AddFilter(taskdto.ChannelFilter{Kind: taskdto.FilterMutableRelay})
 
 	requestId := c.GetString(common.RequestIdKey)
 	//group := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
@@ -120,6 +124,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}()
 
 	request, err := helper.GetAndValidateRequest(c, relayFormat)
+	common.ReleaseOriginalBodyStorage(c)
 	if err != nil {
 		// Map "request body too large" to 413 so clients can handle it correctly
 		if common.IsRequestBodyTooLargeError(err) || errors.Is(err, common.ErrRequestBodyTooLarge) {
@@ -361,11 +366,6 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 
-	// A converted/billed attempt must never retry into an externally billed raw
-	// pipeline, nor accidentally process a transparent channel with an adaptor.
-	if channel.GetSetting().TransportMode == dto.TransportModeTransparent {
-		return nil, types.NewErrorWithStatusCode(errors.New("cannot retry a converted request on a transparent channel"), types.ErrorCodeGetChannelFailed, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
-	}
 	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
 
 	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)

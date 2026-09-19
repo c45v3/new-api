@@ -982,7 +982,7 @@ func (channel *Channel) ValidateSettings() error {
 	if err := channelParams.ValidateHTTPTransport(); err != nil {
 		return err
 	}
-	if err := channelParams.ValidateTransportMode(); err != nil {
+	if err := channelParams.ValidateTransparentRelay(); err != nil {
 		return err
 	}
 	channelOtherSettings := &dto.ChannelOtherSettings{}
@@ -995,7 +995,10 @@ func (channel *Channel) ValidateSettings() error {
 	if err := channelOtherSettings.ValidateToolLossPolicy(); err != nil {
 		return err
 	}
-	if channelParams.TransportMode == dto.TransportModeTransparent {
+	if channelParams.TransparentRelay {
+		if _, supported := constant.GetTransparentCredentialSpec(channel.Type); !supported {
+			return fmt.Errorf("transparent relay does not support this channel credential scheme")
+		}
 		var mapping map[string]string
 		if raw := channel.GetModelMapping(); raw != "" {
 			if err := common.UnmarshalJsonStr(raw, &mapping); err != nil {
@@ -1019,6 +1022,25 @@ func (channel *Channel) ValidateSettings() error {
 	if channel.Type == constant.ChannelTypeAdvancedCustom && channelOtherSettings.UpstreamModelUpdateCheckEnabled {
 		if _, ok := channelOtherSettings.AdvancedCustom.ModelListRoute(); !ok {
 			return fmt.Errorf("advanced custom channels require a %s route when upstream model update checks are enabled", dto.AdvancedCustomModelListPath)
+		}
+	}
+	if channel.Setting != nil && *channel.Setting != "" {
+		var fields map[string]json.RawMessage
+		if err := common.UnmarshalJsonStr(*channel.Setting, &fields); err != nil {
+			return err
+		}
+		if _, legacy := fields["transport_mode"]; legacy {
+			delete(fields, "transport_mode")
+			value, err := common.Marshal(channelParams.TransparentRelay)
+			if err != nil {
+				return err
+			}
+			fields["transparent_relay"] = value
+			normalized, err := common.Marshal(fields)
+			if err != nil {
+				return err
+			}
+			channel.Setting = common.GetPointer(string(normalized))
 		}
 	}
 	return nil

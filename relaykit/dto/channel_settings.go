@@ -1,25 +1,26 @@
 package dto
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
 	"sync"
 
+	"github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
 type ChannelSettings struct {
-	// TransportMode is independent of the endpoint/protocol relay mode.
-	// Empty/inherit preserves the legacy Request Body Passthrough settings.
-	TransportMode TransportMode `json:"transport_mode,omitempty"`
+	TransparentRelay bool `json:"transparent_relay"`
 	// TransparentBilling must explicitly acknowledge externally managed billing.
-	TransparentBilling     string `json:"transparent_billing,omitempty"`
-	TaskPluginKey          string `json:"task_plugin_key,omitempty"`
-	ForceFormat            bool   `json:"force_format,omitempty"`
-	ThinkingToContent      bool   `json:"thinking_to_content,omitempty"`
-	Proxy                  string `json:"proxy"`
+	TransparentBilling string `json:"transparent_billing,omitempty"`
+	TaskPluginKey      string `json:"task_plugin_key,omitempty"`
+	ForceFormat        bool   `json:"force_format,omitempty"`
+	ThinkingToContent  bool   `json:"thinking_to_content,omitempty"`
+	Proxy              string `json:"proxy"`
+	// Deprecated: retained for decoding old settings; relay policy ignores it.
 	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
 	SystemPrompt           string `json:"system_prompt,omitempty"`
 	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
@@ -31,25 +32,30 @@ type ChannelSettings struct {
 	HTTP2ConnectionShards int `json:"http2_connection_shards,omitempty"`
 }
 
-type TransportMode string
-
-const (
-	TransportModeInherit         TransportMode = "inherit"
-	TransportModeConvert         TransportMode = "convert"
-	TransportModeBodyPassthrough TransportMode = "body_passthrough"
-	TransportModeTransparent     TransportMode = "transparent"
-)
-
-func (s ChannelSettings) ValidateTransportMode() error {
-	switch s.TransportMode {
-	case "", TransportModeInherit, TransportModeConvert, TransportModeBodyPassthrough, TransportModeTransparent:
-	default:
-		return fmt.Errorf("invalid transport_mode: %s", s.TransportMode)
+// UnmarshalJSON migrates only legacy transparent mode. An explicitly supplied
+// transparent_relay value is authoritative, including false.
+func (s *ChannelSettings) UnmarshalJSON(data []byte) error {
+	type plain ChannelSettings
+	decoded := plain(*s)
+	if err := kitutil.Unmarshal(data, &decoded); err != nil {
+		return err
 	}
-	if s.TransparentBilling != "" && s.TransparentBilling != "external" {
-		return fmt.Errorf("transparent_billing must be external or empty")
+	var legacy struct {
+		TransparentRelay json.RawMessage `json:"transparent_relay"`
+		TransportMode    string          `json:"transport_mode"`
 	}
-	if s.TransportMode != TransportModeTransparent {
+	if err := kitutil.Unmarshal(data, &legacy); err != nil {
+		return err
+	}
+	if legacy.TransparentRelay == nil && legacy.TransportMode == "transparent" {
+		decoded.TransparentRelay = true
+	}
+	*s = ChannelSettings(decoded)
+	return nil
+}
+
+func (s ChannelSettings) ValidateTransparentRelay() error {
+	if !s.TransparentRelay {
 		return nil
 	}
 	if s.TransparentBilling != "external" {
@@ -65,7 +71,7 @@ func (s ChannelSettings) ValidateTransportMode() error {
 // silently discarding administrator intent. Implicit conversion defaults are
 // not applied at all by the independent transparent pipeline.
 func (s ChannelSettings) ValidateTransparentMutations(other ChannelOtherSettings, hasParamOverride, hasModelMapping bool) error {
-	if s.TransportMode != TransportModeTransparent {
+	if !s.TransparentRelay {
 		return nil
 	}
 	if hasParamOverride || hasModelMapping || other.DisguiseAsClaudeCode || other.DisableStore || other.AdvancedCustom != nil {

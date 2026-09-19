@@ -488,31 +488,26 @@ func TestApplyReasoningModelSuffixPassThroughKeepsModifierBodyVerbatim(t *testin
 	assert.Equal(t, body, string(got))
 }
 
-func TestApplyReasoningModelSuffixChannelPassThroughKeepsModifierBodyVerbatim(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	const model = "qwen3.8-max@thinking:on"
-	body := `{"model":"` + model + `","messages":[]}`
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c.Request = httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-	request := &dto.GeneralOpenAIRequest{Model: model}
+func TestApplyReasoningModelSuffixIgnoresLegacyChannelPassThrough(t *testing.T) {
+	settings := model_setting.GetGlobalSettings()
+	original := settings.PassThroughRequestEnabled
+	t.Cleanup(func() { settings.PassThroughRequestEnabled = original })
+	settings.PassThroughRequestEnabled = false
+
+	request := &dto.GeneralOpenAIRequest{Model: "qwen3.8-max@thinking:on@effort:high"}
 	info := &relaycommon.RelayInfo{
-		OriginModelName: model,
+		OriginModelName: request.Model,
 		Request:         request,
 		ChannelMeta: &relaycommon.ChannelMeta{
-			UpstreamModelName: model,
+			UpstreamModelName: request.Model,
 			ChannelSetting:    dto.ChannelSettings{PassThroughBodyEnabled: true},
 		},
 	}
-
-	require.NoError(t, ApplyReasoningModelSuffix(c, info, request))
-	assert.Equal(t, model, info.UpstreamModelName)
-	assert.Nil(t, info.ReasoningConversion)
-	storage, err := common.GetBodyStorage(c)
-	require.NoError(t, err)
-	got, err := storage.Bytes()
-	require.NoError(t, err)
-	assert.Equal(t, body, string(got))
+	mustApplyReasoningModelSuffix(t, info, request)
+	assert.Equal(t, "qwen3.8-max", info.UpstreamModelName)
+	assert.Equal(t, "high", request.ReasoningEffort)
+	require.NotNil(t, info.ReasoningConversion)
+	assert.Equal(t, "enabled", info.ReasoningConversion.Mode)
 }
 
 func TestApplyReasoningModelSuffixPassThroughAllowsUnknownModifier(t *testing.T) {
