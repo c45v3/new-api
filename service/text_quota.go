@@ -87,6 +87,18 @@ func cacheWriteTokensTotal(summary textQuotaSummary) int {
 	return summary.CacheCreationTokens
 }
 
+// tokenUsedForExport is the physical token volume written to quota_data.token_used
+// (rankings and the data dashboard). Claude billing keeps cache read/write out of
+// PromptTokens because those counts have independent ratios; export still needs
+// the actual total rather than the billing base prompt.
+func (s textQuotaSummary) tokenUsedForExport() int {
+	tokens := s.PromptTokens + s.CompletionTokens
+	if s.IsClaudeUsageSemantic {
+		tokens += s.CacheTokens + cacheWriteTokensTotal(s)
+	}
+	return max(tokens, 0)
+}
+
 func isLegacyClaudeDerivedOpenAIUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) bool {
 	if relayInfo == nil || usage == nil {
 		return false
@@ -525,6 +537,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		ChannelId:        relayInfo.ChannelId,
 		PromptTokens:     summary.PromptTokens,
 		CompletionTokens: summary.CompletionTokens,
+		TokenUsed:        summary.tokenUsedForExport(),
 		ModelName:        logModel,
 		TokenName:        summary.TokenName,
 		Quota:            summary.Quota,

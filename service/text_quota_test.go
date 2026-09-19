@@ -727,6 +727,197 @@ func TestCalculateTextQuotaSummaryDoesNotSubtractCanonicalClaudeCacheTwiceForOpe
 	assert.Equal(t, 798, summary.Quota)
 }
 
+func TestTokenUsedForExportIncludesClaudeCacheTokens(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+
+	priceData := hosttypes.PriceData{
+		ModelRatio:         1,
+		CompletionRatio:    1,
+		CacheRatio:         0.1,
+		CacheCreationRatio: 1.25,
+		GroupRatioInfo:     hosttypes.GroupRatioInfo{GroupRatio: 1},
+	}
+
+	tests := []struct {
+		name           string
+		relayInfo      *relaycommon.RelayInfo
+		usage          *dto.Usage
+		wantPrompt     int
+		wantCompletion int
+		wantExport     int
+		wantClaude     bool
+	}{
+		{
+			name: "canonical anthropic usage excludes cache from prompt but export includes it",
+			relayInfo: &relaycommon.RelayInfo{
+				ChannelMeta: &relaycommon.ChannelMeta{
+					ChannelType: constant.ChannelTypeAnthropic,
+				},
+				OriginModelName: "claude-sonnet-4",
+				PriceData:       priceData,
+				StartTime:       time.Now(),
+			},
+			usage: effectiveBillingUsage(&dto.Usage{
+				BillingUsage: dto.NewClaudeMessagesBillingUsage(&dto.ClaudeUsage{
+					InputTokens:              172,
+					CacheReadInputTokens:     2432,
+					CacheCreationInputTokens: 0,
+					OutputTokens:             383,
+				}),
+			}),
+			wantPrompt:     172,
+			wantCompletion: 383,
+			wantExport:     2987,
+			wantClaude:     true,
+		},
+		{
+			name: "canonical anthropic cache creation is included in export total",
+			relayInfo: &relaycommon.RelayInfo{
+				ChannelMeta: &relaycommon.ChannelMeta{
+					ChannelType: constant.ChannelTypeAnthropic,
+				},
+				OriginModelName: "claude-sonnet-4",
+				PriceData:       priceData,
+				StartTime:       time.Now(),
+			},
+			usage: effectiveBillingUsage(&dto.Usage{
+				BillingUsage: dto.NewClaudeMessagesBillingUsage(&dto.ClaudeUsage{
+					InputTokens:              172,
+					CacheReadInputTokens:     2432,
+					CacheCreationInputTokens: 100,
+					OutputTokens:             383,
+				}),
+			}),
+			wantPrompt:     172,
+			wantCompletion: 383,
+			wantExport:     3087,
+			wantClaude:     true,
+		},
+		{
+			name: "split claude cache writes are included once",
+			relayInfo: &relaycommon.RelayInfo{
+				ChannelMeta: &relaycommon.ChannelMeta{
+					ChannelType: constant.ChannelTypeAnthropic,
+				},
+				OriginModelName: "claude-sonnet-4",
+				PriceData:       priceData,
+				StartTime:       time.Now(),
+			},
+			usage: &dto.Usage{
+				PromptTokens:     172,
+				CompletionTokens: 383,
+				PromptTokensDetails: dto.InputTokenDetails{
+					CachedTokens: 2432,
+				},
+				ClaudeCacheCreation5mTokens: 10,
+				ClaudeCacheCreation1hTokens: 20,
+				UsageSemantic:               dto.BillingUsageSemanticAnthropic,
+			},
+			wantPrompt:     172,
+			wantCompletion: 383,
+			wantExport:     3017,
+			wantClaude:     true,
+		},
+		{
+			name: "openai cache stays inside prompt and is not added again",
+			relayInfo: &relaycommon.RelayInfo{
+				RelayFormat:     types.RelayFormatOpenAI,
+				OriginModelName: "gpt-4.1",
+				PriceData:       priceData,
+				StartTime:       time.Now(),
+			},
+			usage: &dto.Usage{
+				PromptTokens:     1000,
+				CompletionTokens: 50,
+				PromptTokensDetails: dto.InputTokenDetails{
+					CachedTokens: 200,
+				},
+			},
+			wantPrompt:     1000,
+			wantCompletion: 50,
+			wantExport:     1050,
+			wantClaude:     false,
+		},
+		{
+			name: "openrouter legacy claude prompt is reduced for billing then restored for export",
+			relayInfo: &relaycommon.RelayInfo{
+				FinalRequestRelayFormat: types.RelayFormatClaude,
+				OriginModelName:         "anthropic/claude-3.7-sonnet",
+				ChannelMeta: &relaycommon.ChannelMeta{
+					ChannelType: constant.ChannelTypeOpenRouter,
+				},
+				PriceData: priceData,
+				StartTime: time.Now(),
+			},
+			usage: &dto.Usage{
+				PromptTokens:     2604,
+				CompletionTokens: 383,
+				PromptTokensDetails: dto.InputTokenDetails{
+					CachedTokens: 2432,
+				},
+			},
+			wantPrompt:     172,
+			wantCompletion: 383,
+			wantExport:     2987,
+			wantClaude:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.NotNil(t, tt.usage)
+			summary := calculateTextQuotaSummary(ctx, tt.relayInfo, tt.usage)
+			assert.Equal(t, tt.wantClaude, summary.IsClaudeUsageSemantic)
+			assert.Equal(t, tt.wantPrompt, summary.PromptTokens)
+			assert.Equal(t, tt.wantCompletion, summary.CompletionTokens)
+			assert.Equal(t, tt.wantExport, summary.tokenUsedForExport())
+		})
+	}
+}
+
+func TestRecordConsumeLogWritesExportTokenUsedWithoutChangingPromptTokens(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Set("username", "alice")
+
+	previousExport := common.DataExportEnabled
+	common.DataExportEnabled = true
+	t.Cleanup(func() { common.DataExportEnabled = previousExport })
+
+	model.CacheQuotaDataLock.Lock()
+	previousCache := model.CacheQuotaData
+	model.CacheQuotaData = make(map[string]*model.QuotaData)
+	model.CacheQuotaDataLock.Unlock()
+	t.Cleanup(func() {
+		model.CacheQuotaDataLock.Lock()
+		model.CacheQuotaData = previousCache
+		model.CacheQuotaDataLock.Unlock()
+	})
+
+	model.RecordConsumeLog(ctx, 1, model.RecordConsumeLogParams{
+		PromptTokens:     172,
+		CompletionTokens: 383,
+		TokenUsed:        2987,
+		ModelName:        "claude-sonnet-4-rankings",
+		Group:            "default",
+	})
+
+	model.CacheQuotaDataLock.Lock()
+	defer model.CacheQuotaDataLock.Unlock()
+	require.Len(t, model.CacheQuotaData, 1)
+	for _, row := range model.CacheQuotaData {
+		assert.Equal(t, 2987, row.TokenUsed)
+	}
+
+	var log model.Log
+	require.NoError(t, model.LOG_DB.Where("model_name = ?", "claude-sonnet-4-rankings").First(&log).Error)
+	assert.Equal(t, 172, log.PromptTokens)
+	assert.Equal(t, 383, log.CompletionTokens)
+}
+
 func TestComposeTieredTextQuotaKeepsToolCallSurcharges(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
