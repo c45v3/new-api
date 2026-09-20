@@ -223,3 +223,60 @@ func TestApplySystemPromptIfNeededSkipsToolLoadingMessages(t *testing.T) {
 		})
 	}
 }
+
+func TestApplySystemPromptIfNeededChatCompletionsRegression(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	user := dto.Message{Role: "user", Content: "hello"}
+	tests := []struct {
+		name     string
+		prompt   string
+		override bool
+		messages []dto.Message
+		want     []dto.Message
+	}{
+		{
+			name:     "empty prompt is a no-op",
+			messages: []dto.Message{user},
+			want:     []dto.Message{user},
+		},
+		{
+			name:     "missing system injects channel prompt",
+			prompt:   "CHANNEL SYSTEM",
+			messages: []dto.Message{user},
+			want:     []dto.Message{{Role: "system", Content: "CHANNEL SYSTEM"}, user},
+		},
+		{
+			name:     "existing system kept without override",
+			prompt:   "CHANNEL SYSTEM",
+			messages: []dto.Message{{Role: "system", Content: "CLIENT SYSTEM"}, user},
+			want:     []dto.Message{{Role: "system", Content: "CLIENT SYSTEM"}, user},
+		},
+		{
+			name:     "override prepends channel prompt",
+			prompt:   "CHANNEL SYSTEM",
+			override: true,
+			messages: []dto.Message{{Role: "system", Content: "CLIENT SYSTEM"}, user},
+			want:     []dto.Message{{Role: "system", Content: "CHANNEL SYSTEM\nCLIENT SYSTEM"}, user},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			info := &relaycommon.RelayInfo{
+				ChannelMeta: &relaycommon.ChannelMeta{
+					ChannelSetting: dto.ChannelSettings{
+						SystemPrompt:         tt.prompt,
+						SystemPromptOverride: tt.override,
+					},
+				},
+			}
+			request := &dto.GeneralOpenAIRequest{
+				Model:    "gpt-4.1",
+				Messages: append([]dto.Message(nil), tt.messages...),
+			}
+			applySystemPromptIfNeeded(c, info, request)
+			require.Equal(t, tt.want, request.Messages)
+		})
+	}
+}

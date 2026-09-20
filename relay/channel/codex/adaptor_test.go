@@ -54,3 +54,26 @@ func TestConvertOpenAIResponsesRequestDropsPenalties(t *testing.T) {
 	assert.Nil(t, request.FrequencyPenalty)
 	assert.Nil(t, request.PresencePenalty)
 }
+
+func TestConvertOpenAIResponsesRequestDoesNotReapplySystemPrompt(t *testing.T) {
+	adaptor := &Adaptor{}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelSetting: dto.ChannelSettings{
+				SystemPrompt:         "CHANNEL SYSTEM",
+				SystemPromptOverride: true,
+			},
+		},
+		RelayMode: relayconstant.RelayModeResponses,
+	}
+
+	converted, err := adaptor.ConvertOpenAIResponsesRequest(nil, info, dto.OpenAIResponsesRequest{
+		Model:        "gpt-5-codex",
+		Input:        json.RawMessage(`"hello"`),
+		Instructions: json.RawMessage(`"CLIENT SYSTEM"`),
+	})
+	require.NoError(t, err)
+	request, ok := converted.(dto.OpenAIResponsesRequest)
+	require.True(t, ok)
+	assert.Equal(t, json.RawMessage(`"CLIENT SYSTEM"`), request.Instructions)
+}

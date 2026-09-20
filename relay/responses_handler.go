@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -71,6 +72,11 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 	}
 	if err := helper.ApplyReasoningModelSuffix(c, info, request); err != nil {
 		return newConvertRequestFailedError(c, info, err)
+	}
+	if !info.IsPassThroughEnabled() {
+		if err := applyResponsesSystemPromptIfNeeded(c, info, request); err != nil {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodeConvertRequestFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
 	}
 
 	adaptor := GetAdaptor(info.ApiType)
@@ -169,5 +175,51 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 	} else {
 		service.PostTextConsumeQuota(c, info, usageDto, nil)
 	}
+	return nil
+}
+
+// applyResponsesSystemPromptIfNeeded maps channel SystemPrompt onto Responses
+// `instructions`. It does not write `input`. Callers must skip this when
+// Request Body Passthrough is active so the original body stays byte-identical.
+func applyResponsesSystemPromptIfNeeded(c *gin.Context, info *relaycommon.RelayInfo, request *dto.OpenAIResponsesRequest) error {
+	if info == nil || info.ChannelMeta == nil || request == nil {
+		return nil
+	}
+	systemPrompt := info.ChannelSetting.SystemPrompt
+	if systemPrompt == "" {
+		return nil
+	}
+
+	merged := systemPrompt
+	if len(request.Instructions) > 0 {
+		var probe any
+		if err := common.Unmarshal(request.Instructions, &probe); err != nil {
+			return fmt.Errorf("invalid responses instructions: %w", err)
+		}
+		switch value := probe.(type) {
+		case nil:
+		case string:
+			if value != "" {
+				if !info.ChannelSetting.SystemPromptOverride {
+					return nil
+				}
+				if c != nil {
+					common.SetContextKey(c, constant.ContextKeySystemPromptOverride, true)
+				}
+				merged = systemPrompt + "\n" + value
+			}
+		default:
+			if !info.ChannelSetting.SystemPromptOverride {
+				return nil
+			}
+			return fmt.Errorf("invalid responses instructions: expected JSON string, got %s", common.GetJsonType(request.Instructions))
+		}
+	}
+
+	encoded, err := common.Marshal(merged)
+	if err != nil {
+		return err
+	}
+	request.Instructions = encoded
 	return nil
 }
