@@ -6181,6 +6181,11 @@
     "Upstream response": "上游响应",
     "Upstream HTTP Status": "上游 HTTP 状态码",
     "Original Error Response": "原始错误响应",
-    "Upstream error response was truncated for storage.": "上游错误响应过长，保存时已截断。"
+    "Upstream error response was truncated for storage.": "上游错误响应过长，保存时已截断。",
+    "Import .md/.txt": "导入 .md/.txt",
+    "Only .md and .txt files are supported.": "仅支持 .md 和 .txt 文件。",
+    "System prompt imported from {{filename}}": "已从 {{filename}} 导入系统提示词",
+    "Failed to read system prompt file.": "读取系统提示词文件失败。",
+    "Importing a .md or .txt file replaces the current system prompt.": "导入 .md 或 .txt 文件会替换当前系统提示词。"
   }
 }

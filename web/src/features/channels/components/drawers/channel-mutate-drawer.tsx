@@ -44,6 +44,7 @@ import {
   Wand2,
 } from 'lucide-react'
 import {
+  type ChangeEvent,
   type ReactNode,
   useEffect,
   useState,
@@ -627,6 +628,7 @@ export function ChannelMutateDrawer({
     ((action: MissingModelsAction) => void) | null
   >(null)
   const channelFormRef = useRef<HTMLFormElement>(null)
+  const systemPromptFileInputRef = useRef<HTMLInputElement>(null)
   const advancedNavScrollPendingRef = useRef(false)
   const [activeEditorSectionId, setActiveEditorSectionId] = useState<string>(
     CHANNEL_EDITOR_SECTION_IDS.identity
@@ -699,6 +701,40 @@ export function ChannelMutateDrawer({
     resolver: zodResolver(formSchema),
     defaultValues: CHANNEL_FORM_DEFAULT_VALUES,
   })
+
+  const handleSystemPromptFileImport = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const input = event.currentTarget
+      const file = input.files?.[0]
+      input.value = ''
+      if (!file) {
+        return
+      }
+
+      const fileName = file.name.toLowerCase()
+      if (!fileName.endsWith('.md') && !fileName.endsWith('.txt')) {
+        toast.error(t('Only .md and .txt files are supported.'))
+        return
+      }
+
+      try {
+        const content = await file.text()
+        form.setValue('system_prompt', content, {
+          shouldDirty: true,
+          shouldTouch: true,
+          shouldValidate: true,
+        })
+        toast.success(
+          t('System prompt imported from {{filename}}', {
+            filename: file.name,
+          })
+        )
+      } catch {
+        toast.error(t('Failed to read system prompt file.'))
+      }
+    },
+    [form, t]
+  )
 
   // Watch form values for conditional rendering
   const multiKeyMode = form.watch('multi_key_mode')
@@ -4435,7 +4471,29 @@ export function ChannelMutateDrawer({
                               name='system_prompt'
                               render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel>{t('System Prompt')}</FormLabel>
+                                  <div className='flex items-center justify-between gap-2'>
+                                    <FormLabel>{t('System Prompt')}</FormLabel>
+                                    <div className='shrink-0'>
+                                      <input
+                                        ref={systemPromptFileInputRef}
+                                        type='file'
+                                        accept='.md,.txt,text/markdown,text/plain'
+                                        className='hidden'
+                                        onChange={handleSystemPromptFileImport}
+                                      />
+                                      <Button
+                                        type='button'
+                                        variant='outline'
+                                        size='sm'
+                                        onClick={() =>
+                                          systemPromptFileInputRef.current?.click()
+                                        }
+                                      >
+                                        <FileText className='mr-1 size-3.5' />
+                                        {t('Import .md/.txt')}
+                                      </Button>
+                                    </div>
+                                  </div>
                                   <FormControl>
                                     <Textarea
                                       placeholder={t(
@@ -4448,6 +4506,9 @@ export function ChannelMutateDrawer({
                                   <FormDescription>
                                     {t(
                                       'Default system prompt for this channel'
+                                    )}{' '}
+                                    {t(
+                                      'Importing a .md or .txt file replaces the current system prompt.'
                                     )}
                                   </FormDescription>
                                   <FormMessage />
