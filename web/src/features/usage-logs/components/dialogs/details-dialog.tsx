@@ -797,15 +797,20 @@ export function DetailsDialog(props: DetailsDialogProps) {
                     mono
                   />
                 )}
-                <div className='flex min-w-0 items-center gap-1.5 text-xs'>
-                  <Route
-                    className='text-muted-foreground size-3'
-                    aria-hidden='true'
-                  />
-                  <span className='min-w-0 break-all sm:wrap-break-word'>
-                    {conversionLabel}
-                  </span>
-                </div>
+                <DetailRow
+                  label={t('Format')}
+                  value={
+                    <span className='flex min-w-0 items-center gap-1.5'>
+                      <Route
+                        className='text-muted-foreground size-3 shrink-0'
+                        aria-hidden='true'
+                      />
+                      <span className='min-w-0 break-all sm:wrap-break-word'>
+                        {conversionLabel}
+                      </span>
+                    </span>
+                  }
+                />
               </div>
             </div>
           </DetailSection>
