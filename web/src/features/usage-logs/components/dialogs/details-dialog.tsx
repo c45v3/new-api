@@ -717,7 +717,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
           {other?.reasoning_effort?.trim() && (
             <DetailRow
               label={t('Reasoning Effort')}
-              value={<ReasoningEffortBadge effort={other.reasoning_effort} />}
+              value={<ReasoningEffortBadge effort={other.reasoning_effort} compact />}
             />
           )}
 
@@ -797,20 +797,15 @@ export function DetailsDialog(props: DetailsDialogProps) {
                     mono
                   />
                 )}
-                <DetailRow
-                  label={t('Format')}
-                  value={
-                    <span className='flex min-w-0 items-center gap-1.5'>
-                      <Route
-                        className='text-muted-foreground size-3 shrink-0'
-                        aria-hidden='true'
-                      />
-                      <span className='min-w-0 break-all sm:wrap-break-word'>
-                        {conversionLabel}
-                      </span>
-                    </span>
-                  }
-                />
+                <div className='flex min-w-0 items-center gap-1.5 text-xs'>
+                  <Route
+                    className='text-muted-foreground size-3'
+                    aria-hidden='true'
+                  />
+                  <span className='min-w-0 break-all sm:wrap-break-word'>
+                    {conversionLabel}
+                  </span>
+                </div>
               </div>
             </div>
           </DetailSection>
