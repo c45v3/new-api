@@ -96,6 +96,13 @@ type NewAPIError struct {
 	errorCode      ErrorCode
 	StatusCode     int
 	Metadata       json.RawMessage
+
+	// Diagnostics retained for root-visible error logs. These are deliberately
+	// excluded from API serialization and do not change the client-facing error.
+	ErrorSource                   string `json:"-"`
+	UpstreamStatusCode            int    `json:"-"`
+	UpstreamResponseBody          string `json:"-"`
+	UpstreamResponseBodyTruncated bool   `json:"-"`
 }
 
 // Unwrap enables errors.Is / errors.As to work with NewAPIError by exposing the underlying error.

@@ -15,6 +15,7 @@ import (
 	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
@@ -84,14 +85,41 @@ func ClaudeErrorWrapperLocal(err error, code string, statusCode int) *dto.Claude
 	return claudeErr
 }
 
+const maxStoredUpstreamErrorBodyBytes = 20 * 1024
+
+func attachUpstreamErrorDetails(newApiErr *types.NewAPIError, statusCode int, responseBody []byte) *types.NewAPIError {
+	if newApiErr == nil {
+		return nil
+	}
+	newApiErr.ErrorSource = "upstream_response"
+	newApiErr.UpstreamStatusCode = statusCode
+	if len(responseBody) == 0 {
+		return newApiErr
+	}
+
+	body := strings.ToValidUTF8(string(responseBody), "�")
+	body = kitutil.MaskSensitiveInfo(body)
+	if len(body) > maxStoredUpstreamErrorBodyBytes {
+		body = strings.ToValidUTF8(body[:maxStoredUpstreamErrorBodyBytes], "�")
+		newApiErr.UpstreamResponseBodyTruncated = true
+	}
+	newApiErr.UpstreamResponseBody = body
+	return newApiErr
+}
+
 func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFail bool) (newApiErr *types.NewAPIError) {
-	newApiErr = types.InitOpenAIError(types.ErrorCodeBadResponseStatusCode, resp.StatusCode)
+	newApiErr = attachUpstreamErrorDetails(
+		types.InitOpenAIError(types.ErrorCodeBadResponseStatusCode, resp.StatusCode),
+		resp.StatusCode,
+		nil,
+	)
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return
 	}
 	CloseResponseBodyGracefully(resp)
+	newApiErr = attachUpstreamErrorDetails(newApiErr, resp.StatusCode, responseBody)
 	var errResponse dto.GeneralErrorResponse
 	responseBodyText := string(responseBody)
 	responseBodyPreview := common.LocalLogPreview(responseBodyText)
@@ -117,7 +145,7 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 		// General format error (OpenAI, Anthropic, Gemini, etc.)
 		oaiError := errResponse.TryToOpenAIError()
 		if oaiError != nil {
-			newApiErr = types.WithOpenAIError(*oaiError, resp.StatusCode)
+			newApiErr = attachUpstreamErrorDetails(types.WithOpenAIError(*oaiError, resp.StatusCode), resp.StatusCode, responseBody)
 			if showBodyWhenFail {
 				newApiErr.Err = buildErrWithBody(newApiErr.Error())
 			}
@@ -130,7 +158,11 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 		// raw body so the upstream failure remains diagnosable.
 		logger.LogError(ctx, fmt.Sprintf("bad response status code %d with empty error message, body: %s", resp.StatusCode, responseBodyPreview))
 	}
-	newApiErr = types.NewOpenAIError(errors.New(message), types.ErrorCodeBadResponseStatusCode, resp.StatusCode)
+	newApiErr = attachUpstreamErrorDetails(
+		types.NewOpenAIError(errors.New(message), types.ErrorCodeBadResponseStatusCode, resp.StatusCode),
+		resp.StatusCode,
+		responseBody,
+	)
 	if showBodyWhenFail {
 		newApiErr.Err = buildErrWithBody(newApiErr.Error())
 	}

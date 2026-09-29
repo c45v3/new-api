@@ -431,6 +431,26 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		other.SetPublic("error_type", err.GetErrorType())
 		other.SetPublic("error_code", err.GetErrorCode())
 		other.SetPublic("status_code", err.StatusCode)
+
+		errorSource := err.ErrorSource
+		if errorSource == "" {
+			if err.GetErrorCode() == types.ErrorCodeDoRequestFailed {
+				errorSource = "upstream_connection"
+			} else {
+				errorSource = "local_request"
+			}
+		}
+		other.SetRoot("error_source", errorSource)
+		if err.UpstreamStatusCode > 0 {
+			other.SetRoot("upstream_status_code", err.UpstreamStatusCode)
+		}
+		if err.UpstreamResponseBody != "" {
+			other.SetRoot("upstream_response_body", err.UpstreamResponseBody)
+		}
+		if err.UpstreamResponseBodyTruncated {
+			other.SetRoot("upstream_response_body_truncated", true)
+		}
+
 		if relayInfo != nil && relayInfo.ReasoningEffort != "" {
 			other.SetPublic("reasoning_effort", relayInfo.ReasoningEffort)
 		}

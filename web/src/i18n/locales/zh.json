@@ -6171,9 +6171,16 @@
     "Zero retention": "零数据保留",
     "Zhipu": "智谱",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放"
-  },
-  "Record Request Body": "记录请求内容",
-  "Save the final outbound request body for this channel in root-visible usage logs. Sensitive data may be included.": "将此渠道最终发送给上游的请求体保存到仅 Root 可见的使用日志中，其中可能包含敏感数据。",
-  "Request Body": "请求内容"
+    "Zoom": "缩放",
+    "Record Request Body": "记录请求内容",
+    "Save the final outbound request body for this channel in root-visible usage logs. Sensitive data may be included.": "将此渠道最终发送给上游的请求体保存到仅 Root 可见的使用日志中，其中可能包含敏感数据。",
+    "Request Body": "请求内容",
+    "Error Diagnostics": "错误诊断",
+    "Request / New API local": "请求 / New API 本地",
+    "Upstream connection": "上游连接",
+    "Upstream response": "上游响应",
+    "Upstream HTTP Status": "上游 HTTP 状态码",
+    "Original Error Response": "原始错误响应",
+    "Upstream error response was truncated for storage.": "上游错误响应过长，保存时已截断。"
+  }
 }

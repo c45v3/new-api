@@ -101,6 +101,12 @@ const CHANNEL_FIELD_LABELS: Record<string, string> = {
   key: 'Key',
 }
 
+const ERROR_SOURCE_LABELS: Record<string, string> = {
+  local_request: 'Request / New API local',
+  upstream_connection: 'Upstream connection',
+  upstream_response: 'Upstream response',
+}
+
 function timingTextColorClass(
   variant: 'success' | 'warning' | 'danger'
 ): string {
@@ -473,6 +479,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
 
   const isViolation = isViolationFeeLog(other)
   const isRefund = props.log.type === 6
+  const isError = props.log.type === 5
   const isConsume = props.log.type === 2
   const isTopup = props.log.type === 1
   const isManage = props.log.type === 3
@@ -608,6 +615,26 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const formattedRequestBody = requestBody
     ? formatRequestBody(requestBody)
     : undefined
+  const errorSource =
+    props.isRoot && isError ? other?.root_info?.error_source : undefined
+  const errorSourceLabel = errorSource
+    ? t(ERROR_SOURCE_LABELS[errorSource] ?? errorSource)
+    : undefined
+  const upstreamStatusCode =
+    props.isRoot && isError
+      ? other?.root_info?.upstream_status_code
+      : undefined
+  const upstreamResponseBody =
+    props.isRoot && isError
+      ? other?.root_info?.upstream_response_body
+      : undefined
+  const formattedUpstreamResponseBody = upstreamResponseBody
+    ? formatRequestBody(upstreamResponseBody)
+    : undefined
+  const upstreamResponseBodyTruncated =
+    props.isRoot &&
+    isError &&
+    other?.root_info?.upstream_response_body_truncated === true
 
   return (
     <Dialog
@@ -818,6 +845,82 @@ export function DetailsDialog(props: DetailsDialogProps) {
             </pre>
           </DetailSection>
         )}
+
+        {props.isRoot &&
+          isError &&
+          (errorSourceLabel ||
+            upstreamStatusCode != null ||
+            formattedUpstreamResponseBody) && (
+            <DetailSection
+              icon={<AlertTriangle className='size-3.5' aria-hidden='true' />}
+              label={t('Error Diagnostics')}
+              variant='danger'
+            >
+              {errorSourceLabel && (
+                <DetailRow label={t('Source')} value={errorSourceLabel} />
+              )}
+              {upstreamStatusCode != null && (
+                <DetailRow
+                  label={t('Upstream HTTP Status')}
+                  value={String(upstreamStatusCode)}
+                  mono
+                />
+              )}
+              {props.log.content && (
+                <DetailRow
+                  label={t('Error Message')}
+                  value={props.log.content}
+                  mono
+                />
+              )}
+              {formattedUpstreamResponseBody && (
+                <div className='mt-2 min-w-0'>
+                  <div className='mb-2 flex items-center justify-between gap-2'>
+                    <span className='text-xs font-medium'>
+                      {t('Original Error Response')}
+                    </span>
+                    <div className='flex gap-2'>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={() =>
+                          copyToClipboard(formattedUpstreamResponseBody)
+                        }
+                      >
+                        {copiedText === formattedUpstreamResponseBody ? (
+                          <Check className='mr-1 size-3.5 text-green-600' />
+                        ) : (
+                          <Copy className='mr-1 size-3.5' />
+                        )}
+                        {t('Copy')}
+                      </Button>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={() =>
+                          downloadRequestBody(
+                            `error-response-${props.log.request_id || props.log.id}.txt`,
+                            formattedUpstreamResponseBody
+                          )
+                        }
+                      >
+                        <Download className='mr-1 size-3.5' />
+                        {t('Download')}
+                      </Button>
+                    </div>
+                  </div>
+                  {upstreamResponseBodyTruncated && (
+                    <p className='mb-2 text-xs text-amber-600 dark:text-amber-400'>
+                      {t('Upstream error response was truncated for storage.')}
+                    </p>
+                  )}
+                  <pre className='bg-muted max-h-80 overflow-auto rounded-md p-3 text-xs leading-5 whitespace-pre-wrap break-all'>
+                    {formattedUpstreamResponseBody}
+                  </pre>
+                </div>
+              )}
+            </DetailSection>
+          )}
 
         {/* Quota saturation marker (admin only) */}
         {props.isAdmin && other?.admin_info?.quota_saturation && (

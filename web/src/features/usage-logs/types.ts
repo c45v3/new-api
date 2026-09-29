@@ -151,6 +151,10 @@ export interface LogOtherData {
     upstream_task_id?: string
     node_name?: string
     request_body?: string
+    error_source?: string
+    upstream_status_code?: number
+    upstream_response_body?: string
+    upstream_response_body_truncated?: boolean
   }
   // Language-independent operation descriptor (audit/login logs).
   // Frontend renders localized content from action + params via i18n templates.
