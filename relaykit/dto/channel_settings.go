@@ -22,8 +22,9 @@ type ChannelSettings struct {
 	Proxy              string `json:"proxy"`
 	// Deprecated: retained for decoding old settings; relay policy ignores it.
 	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
-	SystemPrompt           string `json:"system_prompt,omitempty"`
-	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
+	SystemPrompt               string `json:"system_prompt,omitempty"`
+	SystemPromptOverride       bool   `json:"system_prompt_override,omitempty"`
+	RequestBodyLoggingEnabled bool   `json:"request_body_logging_enabled,omitempty"`
 	// HTTPProtocol controls outbound HTTP version negotiation for this channel.
 	// Accepted values: "", "auto" (default), "http1".
 	HTTPProtocol string `json:"http_protocol,omitempty"`

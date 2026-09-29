@@ -90,6 +90,11 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
 		}
+		if info.ChannelSetting.RequestBodyLoggingEnabled {
+			if bodyBytes, bodyErr := storage.Bytes(); bodyErr == nil {
+				relaycommon.CaptureRequestBodyForLog(c, info, bodyBytes)
+			}
+		}
 		requestBody = common.NewReplayableBodyReader(storage)
 	} else {
 		convertedRequest, err := adaptor.ConvertOpenAIResponsesRequest(c, info, *request)
@@ -116,6 +121,7 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 			}
 		}
 
+		relaycommon.CaptureRequestBodyForLog(c, info, jsonData)
 		logger.LogDebug(c, "requestBody: %s", jsonData)
 		body, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
 		if err != nil {

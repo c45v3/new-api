@@ -267,6 +267,7 @@ export const channelFormSchema = z
     transparent_billing: z.enum(['', 'external']).optional(),
     system_prompt: z.string().optional(),
     system_prompt_override: z.boolean().optional(),
+    request_body_logging_enabled: z.boolean().optional(),
     // Type-specific settings (stored in settings JSON)
     is_enterprise_account: z.boolean().optional(), // OpenRouter specific
     vertex_key_type: z.enum(['json', 'api_key']).optional(), // Vertex AI specific
@@ -505,6 +506,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   transparent_billing: '',
   system_prompt: '',
   system_prompt_override: false,
+  request_body_logging_enabled: false,
   // Type-specific settings
   is_enterprise_account: false,
   vertex_key_type: 'json',
@@ -548,6 +550,7 @@ export function transformChannelToFormDefaults(
     transparent_billing: '' as ChannelFormValues['transparent_billing'],
     system_prompt: '',
     system_prompt_override: false,
+    request_body_logging_enabled: false,
   }
 
   if (channel.setting) {
@@ -570,6 +573,8 @@ export function transformChannelToFormDefaults(
         transparent_billing: parsed.transparent_billing || '',
         system_prompt: parsed.system_prompt || '',
         system_prompt_override: parsed.system_prompt_override || false,
+        request_body_logging_enabled:
+          parsed.request_body_logging_enabled === true,
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -696,6 +701,8 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     transparent_billing: formData.transparent_billing || '',
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,
+    request_body_logging_enabled:
+      formData.request_body_logging_enabled === true,
   }
   delete settingObj.transport_mode
 

@@ -49,6 +49,7 @@ import {
   UserCog,
   Info,
   LogIn,
+  Download,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -111,6 +112,26 @@ function timingTextColorClass(
 function formatRatio(ratio: number | undefined): string {
   if (ratio == null) return '-'
   return ratio.toFixed(4)
+}
+
+function formatRequestBody(body: string): string {
+  try {
+    return JSON.stringify(JSON.parse(body), null, 2)
+  } catch {
+    return body
+  }
+}
+
+function downloadRequestBody(filename: string, body: string): void {
+  const blob = new Blob([body], { type: 'application/json;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
 }
 
 function getUsageBillingPathLabel(
@@ -583,6 +604,10 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const useChannel = other?.admin_info?.use_channel
   const channelChain =
     useChannel && useChannel.length > 0 ? useChannel.join(' → ') : undefined
+  const requestBody = props.isRoot ? other?.root_info?.request_body : undefined
+  const formattedRequestBody = requestBody
+    ? formatRequestBody(requestBody)
+    : undefined
 
   return (
     <Dialog
@@ -756,6 +781,41 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 </div>
               </div>
             </div>
+          </DetailSection>
+        )}
+
+        {formattedRequestBody && (
+          <DetailSection label={t('Request Body')}>
+            <div className='mb-2 flex justify-end gap-2'>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => copyToClipboard(formattedRequestBody)}
+              >
+                {copiedText === formattedRequestBody ? (
+                  <Check className='mr-1 size-3.5 text-green-600' />
+                ) : (
+                  <Copy className='mr-1 size-3.5' />
+                )}
+                {t('Copy')}
+              </Button>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() =>
+                  downloadRequestBody(
+                    `request-${props.log.request_id || props.log.id}.json`,
+                    formattedRequestBody
+                  )
+                }
+              >
+                <Download className='mr-1 size-3.5' />
+                {t('Download')}
+              </Button>
+            </div>
+            <pre className='bg-muted max-h-80 overflow-auto rounded-md p-3 text-xs leading-5 whitespace-pre-wrap break-all'>
+              {formattedRequestBody}
+            </pre>
           </DetailSection>
         )}
 

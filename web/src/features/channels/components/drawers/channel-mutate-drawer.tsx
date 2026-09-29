@@ -299,6 +299,7 @@ const SENSITIVE_FORM_FIELDS = [
   'transparent_billing',
   'system_prompt',
   'system_prompt_override',
+  'request_body_logging_enabled',
   'allow_service_tier',
   'disable_store',
   'allow_safety_identifier',
@@ -348,6 +349,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.weight ||
     values.proxy?.trim() ||
     values.system_prompt?.trim() ||
+    values.request_body_logging_enabled ||
     values.force_format ||
     values.thinking_to_content ||
     values.transparent_relay ||
@@ -739,6 +741,9 @@ export function ChannelMutateDrawer({
   const currentHttp2ConnectionShards = form.watch('http2_connection_shards')
   const currentSystemPrompt = form.watch('system_prompt')
   const currentSystemPromptOverride = form.watch('system_prompt_override')
+  const currentRequestBodyLoggingEnabled = form.watch(
+    'request_body_logging_enabled'
+  )
   const currentAllowServiceTier = form.watch('allow_service_tier')
   const currentDisableStore = form.watch('disable_store')
   const currentAllowSafetyIdentifier = form.watch('allow_safety_identifier')
@@ -1028,6 +1033,7 @@ export function ChannelMutateDrawer({
     currentProxy?.trim() ||
     currentSystemPrompt?.trim() ||
     currentSystemPromptOverride ||
+    currentRequestBodyLoggingEnabled ||
     (currentHttpProtocol && currentHttpProtocol !== 'auto') ||
     (currentHttp2ConnectionShards != null && currentHttp2ConnectionShards > 1)
   )
@@ -4461,6 +4467,29 @@ export function ChannelMutateDrawer({
                                     <FormDescription>
                                       {t(
                                         'Concatenate channel system prompt with user&apos;s prompt'
+                                      )}
+                                    </FormDescription>
+                                  </div>
+                                  <FormControl>
+                                    <Switch
+                                      checked={field.value}
+                                      onCheckedChange={field.onChange}
+                                    />
+                                  </FormControl>
+                                </FormItem>
+                              )}
+                            />
+
+                            <FormField
+                              control={form.control}
+                              name='request_body_logging_enabled'
+                              render={({ field }) => (
+                                <FormItem className='flex items-center justify-between'>
+                                  <div className='space-y-0.5'>
+                                    <FormLabel>{t('Record Request Body')}</FormLabel>
+                                    <FormDescription>
+                                      {t(
+                                        'Save the final outbound request body for this channel in root-visible usage logs. Sensitive data may be included.'
                                       )}
                                     </FormDescription>
                                   </div>

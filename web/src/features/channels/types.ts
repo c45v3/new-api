@@ -95,6 +95,7 @@ export interface ChannelSettings {
   transparent_billing?: '' | 'external'
   system_prompt?: string
   system_prompt_override?: boolean
+  request_body_logging_enabled?: boolean
   http_protocol?: 'auto' | 'http1' | string
   http2_connection_shards?: number
 }

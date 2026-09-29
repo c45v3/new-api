@@ -150,6 +150,7 @@ export interface LogOtherData {
     task_plugin?: TaskPluginRuntimeInfo
     upstream_task_id?: string
     node_name?: string
+    request_body?: string
   }
   // Language-independent operation descriptor (audit/login logs).
   // Frontend renders localized content from action + params via i18n templates.
