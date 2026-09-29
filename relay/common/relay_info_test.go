@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/relayconvert"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -111,6 +112,13 @@ func TestGenRelayInfoCapturesRequestReasoningEffort(t *testing.T) {
 			expected:    "xhigh",
 		},
 		{
+			name:        "OpenRouter reasoning token budget",
+			path:        "/v1/chat/completions",
+			relayFormat: types.RelayFormatOpenAI,
+			request:     &dto.GeneralOpenAIRequest{Model: "anthropic/claude", Reasoning: json.RawMessage(`{"max_tokens":8192}`)},
+			expected:    "medium",
+		},
+		{
 			name:        "OpenAI Responses effort",
 			path:        "/v1/responses",
 			relayFormat: types.RelayFormatOpenAIResponses,
@@ -139,6 +147,24 @@ func TestGenRelayInfoCapturesRequestReasoningEffort(t *testing.T) {
 			expected:    "medium",
 		},
 		{
+			name:        "Claude thinking budget",
+			path:        "/v1/messages",
+			relayFormat: types.RelayFormatClaude,
+			request: &dto.ClaudeRequest{
+				Model:     "claude-opus-4-6",
+				MaxTokens: ptr(uint(16384)),
+				Thinking:  &dto.Thinking{Type: "enabled", BudgetTokens: ptr(8192)},
+			},
+			expected: "medium",
+		},
+		{
+			name:        "Claude adaptive thinking",
+			path:        "/v1/messages",
+			relayFormat: types.RelayFormatClaude,
+			request:     &dto.ClaudeRequest{Model: "claude-opus-4-7", Thinking: &dto.Thinking{Type: "adaptive"}},
+			expected:    "high",
+		},
+		{
 			name:        "Gemini thinking level",
 			path:        "/v1beta/models/gemini-3-pro:generateContent",
 			relayFormat: types.RelayFormatGemini,
@@ -146,6 +172,15 @@ func TestGenRelayInfoCapturesRequestReasoningEffort(t *testing.T) {
 				ThinkingConfig: &dto.GeminiThinkingConfig{ThinkingLevel: "low"},
 			}},
 			expected: "low",
+		},
+		{
+			name:        "Gemini thinking budget",
+			path:        "/v1beta/models/gemini-3-pro:generateContent",
+			relayFormat: types.RelayFormatGemini,
+			request: &dto.GeminiChatRequest{GenerationConfig: dto.GeminiChatGenerationConfig{
+				ThinkingConfig: &dto.GeminiThinkingConfig{ThinkingBudget: ptr(8192)},
+			}},
+			expected: "medium",
 		},
 	}
 
@@ -173,6 +208,37 @@ func TestGenRelayInfoKeepsOriginAndLeavesBillingUnset(t *testing.T) {
 	assert.Equal(t, model, info.OriginModelName)
 	assert.Empty(t, info.BillingModelName)
 	assert.Equal(t, model, info.GetBillingModelName())
+}
+
+func TestInitChannelMetaKeepsRequestReasoningEffortInBodyPassthrough(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	settings := model_setting.GetGlobalSettings()
+	previousEnabled := settings.PassThroughRequestEnabled
+	previousExcluded := append([]int(nil), settings.PassThroughRequestExcludedChannels...)
+	settings.PassThroughRequestEnabled = true
+	settings.PassThroughRequestExcludedChannels = nil
+	t.Cleanup(func() {
+		settings.PassThroughRequestEnabled = previousEnabled
+		settings.PassThroughRequestExcludedChannels = previousExcluded
+	})
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest("POST", "/v1/messages", nil)
+	request := &dto.ClaudeRequest{
+		Model:     "claude-opus-4-6",
+		MaxTokens: ptr(uint(16384)),
+		Thinking:  &dto.Thinking{Type: "enabled", BudgetTokens: ptr(8192)},
+	}
+	info, err := GenRelayInfo(ctx, types.RelayFormatClaude, request, nil)
+	require.NoError(t, err)
+	require.Equal(t, "medium", info.ReasoningEffort)
+
+	info.SetReasoningEffort("")
+	info.InitChannelMeta(ctx)
+
+	assert.True(t, info.IsPassThroughEnabled())
+	assert.Equal(t, "medium", info.ReasoningEffort)
+	assert.Nil(t, info.ReasoningConversion)
 }
 
 func TestInitChannelMetaRestoresRequestReasoningEffortForRetry(t *testing.T) {

@@ -261,13 +261,11 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	// Channel identity feeds the converter options snapshot (e.g.
 	// OpenRouterDialect); drop the cache so a cross-channel retry rebuilds it.
 	info.convOptions = nil
-	if info.IsPassThroughEnabled() {
-		info.ReasoningEffort = ""
-		info.ReasoningConversion = nil
-	} else {
-		info.ReasoningEffort = reasoningEffortFromRequest(info.Request)
-		info.ReasoningConversion = nil
-	}
+	// Request-body passthrough skips mutation, not observability. Keep the
+	// effective reasoning effort available for usage/error logs even when the
+	// outbound body is forwarded byte-for-byte.
+	info.ReasoningEffort = reasoningEffortFromRequest(info.Request)
+	info.ReasoningConversion = nil
 
 	// reset some fields based on channel meta
 	// 重置某些字段，例如模型名称等
@@ -473,37 +471,30 @@ func GenRelayInfoOpenAI(c *gin.Context, request dto.Request) *RelayInfo {
 }
 
 func reasoningEffortFromRequest(request dto.Request) string {
-	var effort string
+	var (
+		intent kitreasoning.Intent
+		err    error
+	)
+
 	switch req := request.(type) {
 	case *dto.GeneralOpenAIRequest:
-		if req == nil {
-			return ""
-		}
-		effort = req.ReasoningEffort
-		if strings.TrimSpace(effort) == "" && len(req.Reasoning) > 0 {
-			value := gjson.GetBytes(req.Reasoning, "effort")
-			if value.Type == gjson.String {
-				effort = value.String()
-			}
-		}
+		intent, err = kitreasoning.FromOpenAIChat(req)
 	case *dto.OpenAIResponsesRequest:
-		if req != nil && req.Reasoning != nil {
-			effort = req.Reasoning.Effort
-		}
+		intent, err = kitreasoning.FromOpenAIResponses(req)
 	case *dto.ClaudeRequest:
-		if req != nil {
-			effort = req.GetEfforts()
-		}
+		intent, err = kitreasoning.FromClaude(req)
 	case *dto.GeminiChatRequest:
-		if req != nil && req.GenerationConfig.ThinkingConfig != nil {
-			config := req.GenerationConfig.ThinkingConfig
-			effort = config.ThinkingLevel
-			if effort == "" && config.ThinkingBudget != nil {
-				effort = string(kitreasoning.EffortFromBudget(*config.ThinkingBudget))
-			}
-		}
+		intent, err = kitreasoning.FromGemini(req)
+	default:
+		return ""
 	}
-	return strings.TrimSpace(effort)
+	if err != nil {
+		// Reasoning logging is diagnostic only. Invalid/unknown reasoning shapes
+		// must not alter request handling just because the log badge cannot infer
+		// an effective effort.
+		return ""
+	}
+	return strings.TrimSpace(string(kitreasoning.EffectiveEffort(intent)))
 }
 
 func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
