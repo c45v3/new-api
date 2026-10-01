@@ -92,12 +92,37 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
 		}
-		if info.ChannelSetting.RequestBodyLoggingEnabled {
-			if bodyBytes, bodyErr := storage.Bytes(); bodyErr == nil {
-				relaycommon.CaptureRequestBodyForLog(c, info, bodyBytes)
+		if info.ApiType == constant.APITypeCodex {
+			bodyBytes, bodyErr := storage.Bytes()
+			if bodyErr != nil {
+				return types.NewError(bodyErr, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
 			}
+			patchedBody, changed, patchErr := injectCodexPromptCacheKeyIfNeeded(c, request, bodyBytes)
+			if patchErr != nil {
+				return types.NewError(fmt.Errorf("failed to inject codex prompt cache key: %w", patchErr), types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+			}
+			if changed {
+				relaycommon.CaptureRequestBodyForLog(c, info, patchedBody)
+				body, closer, bodyErr := relaycommon.NewOutboundJSONBody(patchedBody)
+				if bodyErr != nil {
+					return types.NewError(bodyErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+				}
+				defer closer.Close()
+				requestBody = body
+			} else {
+				if info.ChannelSetting.RequestBodyLoggingEnabled {
+					relaycommon.CaptureRequestBodyForLog(c, info, bodyBytes)
+				}
+				requestBody = common.NewReplayableBodyReader(storage)
+			}
+		} else {
+			if info.ChannelSetting.RequestBodyLoggingEnabled {
+				if bodyBytes, bodyErr := storage.Bytes(); bodyErr == nil {
+					relaycommon.CaptureRequestBodyForLog(c, info, bodyBytes)
+				}
+			}
+			requestBody = common.NewReplayableBodyReader(storage)
 		}
-		requestBody = common.NewReplayableBodyReader(storage)
 	} else {
 		convertedRequest, err := adaptor.ConvertOpenAIResponsesRequest(c, info, *request)
 		if err != nil {
