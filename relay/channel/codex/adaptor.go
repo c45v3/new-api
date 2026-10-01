@@ -157,6 +157,11 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 			req.Set("session-id", affinityKey)
 		}
 	}
+	if req.Get("thread-id") == "" && c != nil {
+		if affinityKey := strings.TrimSpace(c.GetString(CacheAffinityContextKey)); affinityKey != "" {
+			req.Set("thread-id", affinityKey)
+		}
+	}
 
 	// chatgpt.com/backend-api/codex/responses is strict about Content-Type.
 	// Clients may omit it or include parameters like `application/json; charset=utf-8`,
