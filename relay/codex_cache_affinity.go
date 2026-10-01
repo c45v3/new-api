@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/tidwall/sjson"
 )
 
@@ -29,6 +30,13 @@ func prepareCodexCacheAffinity(c *gin.Context, info *relaycommon.RelayInfo, requ
 	}
 
 	c.Set(codex.CacheAffinityContextKey, affinityKey)
+
+	if !info.IsPassThroughEnabled() && codex.UsesResponsesLite(info) &&
+		(source == "stable-prefix" || source == "client-scope") && len(request.ClientMetadata) == 0 {
+		if err := applyCodexFallbackMetadata(c, info, request, affinityKey); err != nil {
+			logger.LogDebug(c, "[codex-cache] failed to build fallback client metadata: %v", err)
+		}
+	}
 
 
 	promptCacheKey := decodePromptCacheKey(request.PromptCacheKey)
@@ -112,6 +120,52 @@ func injectCodexPromptCacheKeyIfNeeded(c *gin.Context, request *dto.OpenAIRespon
 	}
 	logger.LogDebug(c, "[codex-cache] injected prompt_cache_key into passthrough body")
 	return patched, true, nil
+}
+
+func applyCodexFallbackMetadata(c *gin.Context, info *relaycommon.RelayInfo, request *dto.OpenAIResponsesRequest, affinityKey string) error {
+	if c == nil || info == nil || request == nil || affinityKey == "" {
+		return nil
+	}
+
+	installationSeed := fmt.Sprintf("%d:%d:%s", info.UserId, info.TokenId, strings.TrimSpace(c.GetHeader("User-Agent")))
+	installationID := uuid.NewSHA1(uuid.NameSpaceOID, []byte("new-api-codex-installation:"+installationSeed)).String()
+	windowID := uuid.NewSHA1(uuid.NameSpaceOID, []byte("new-api-codex-window:"+affinityKey)).String()
+	turnID := uuid.NewString()
+
+	turnMetadata := map[string]any{
+		"installation_id": installationID,
+		"session_id":      affinityKey,
+		"thread_id":       affinityKey,
+		"turn_id":         turnID,
+		"window_id":       windowID,
+		"request_kind":    "turn",
+		"model":           request.Model,
+	}
+	if request.Reasoning != nil && strings.TrimSpace(request.Reasoning.Effort) != "" {
+		turnMetadata["reasoning_effort"] = request.Reasoning.Effort
+	}
+	turnMetadataJSON, err := json.Marshal(turnMetadata)
+	if err != nil {
+		return err
+	}
+
+	clientMetadata := map[string]string{
+		"x-codex-installation-id": installationID,
+		"session_id":              affinityKey,
+		"thread_id":               affinityKey,
+		"x-codex-window-id":       windowID,
+		"turn_id":                 turnID,
+		"x-codex-turn-metadata":   string(turnMetadataJSON),
+	}
+	encoded, err := json.Marshal(clientMetadata)
+	if err != nil {
+		return err
+	}
+	request.ClientMetadata = encoded
+	c.Set(codex.ResponsesWindowIDContextKey, windowID)
+	c.Set(codex.ResponsesTurnMetadataContextKey, string(turnMetadataJSON))
+	logger.LogDebug(c, "[codex-cache] added fallback Codex client metadata window=%q turn=%q", windowID, turnID)
+	return nil
 }
 
 func decodePromptCacheKey(raw json.RawMessage) string {

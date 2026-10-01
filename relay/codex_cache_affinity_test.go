@@ -161,3 +161,75 @@ func TestInjectCodexPromptCacheKeyPreservesExplicitValue(t *testing.T) {
 		t.Fatalf("body changed unexpectedly: %s", patched)
 	}
 }
+
+func TestApplyCodexFallbackMetadata(t *testing.T) {
+	c := newCodexAffinityTestContext(map[string]string{"User-Agent": "bare-client/1.0"})
+	info := &common.RelayInfo{UserId: 7, TokenId: 11}
+	request := &dto.OpenAIResponsesRequest{
+		Model:     "gpt-6-luna",
+		Reasoning: &dto.Reasoning{Effort: "low"},
+	}
+
+	if err := applyCodexFallbackMetadata(c, info, request, "affinity-key"); err != nil {
+		t.Fatal(err)
+	}
+
+	var metadata map[string]string
+	if err := json.Unmarshal(request.ClientMetadata, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata["session_id"] != "affinity-key" || metadata["thread_id"] != "affinity-key" {
+		t.Fatalf("unexpected session/thread metadata: %v", metadata)
+	}
+	if metadata["x-codex-window-id"] == "" || metadata["turn_id"] == "" {
+		t.Fatalf("missing window/turn metadata: %v", metadata)
+	}
+	if c.GetString(codex.ResponsesWindowIDContextKey) != metadata["x-codex-window-id"] {
+		t.Fatal("window compatibility header context does not match body metadata")
+	}
+
+	var turn map[string]any
+	if err := json.Unmarshal([]byte(metadata["x-codex-turn-metadata"]), &turn); err != nil {
+		t.Fatal(err)
+	}
+	if turn["request_kind"] != "turn" || turn["model"] != "gpt-6-luna" {
+		t.Fatalf("unexpected turn metadata: %v", turn)
+	}
+	if turn["turn_id"] != metadata["turn_id"] {
+		t.Fatalf("turn id mismatch: body=%v top=%v", turn["turn_id"], metadata["turn_id"])
+	}
+}
+
+func TestApplyCodexFallbackMetadataKeepsWindowStableAndTurnFresh(t *testing.T) {
+	info := &common.RelayInfo{UserId: 7, TokenId: 11}
+	makeRequest := func() (map[string]string, error) {
+		c := newCodexAffinityTestContext(map[string]string{"User-Agent": "bare-client/1.0"})
+		request := &dto.OpenAIResponsesRequest{Model: "gpt-6-luna"}
+		if err := applyCodexFallbackMetadata(c, info, request, "same-affinity"); err != nil {
+			return nil, err
+		}
+		var metadata map[string]string
+		if err := json.Unmarshal(request.ClientMetadata, &metadata); err != nil {
+			return nil, err
+		}
+		return metadata, nil
+	}
+
+	first, err := makeRequest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := makeRequest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first["x-codex-installation-id"] != second["x-codex-installation-id"] {
+		t.Fatal("installation id must stay stable")
+	}
+	if first["x-codex-window-id"] != second["x-codex-window-id"] {
+		t.Fatal("window id must stay stable for one affinity")
+	}
+	if first["turn_id"] == second["turn_id"] {
+		t.Fatal("turn id must change per request")
+	}
+}

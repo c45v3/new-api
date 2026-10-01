@@ -18,8 +18,10 @@ import (
 )
 
 const (
-	CacheAffinityContextKey = "codex_cache_affinity_key"
-	responsesLiteHeader     = "x-openai-internal-codex-responses-lite"
+	CacheAffinityContextKey        = "codex_cache_affinity_key"
+	ResponsesWindowIDContextKey    = "codex_responses_window_id"
+	ResponsesTurnMetadataContextKey = "codex_responses_turn_metadata"
+	responsesLiteHeader            = "x-openai-internal-codex-responses-lite"
 )
 
 func UsesResponsesLite(info *relaycommon.RelayInfo) bool {
@@ -184,6 +186,19 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	if req.Get("thread-id") == "" && c != nil {
 		if affinityKey := strings.TrimSpace(c.GetString(CacheAffinityContextKey)); affinityKey != "" {
 			req.Set("thread-id", affinityKey)
+		}
+	}
+
+	if c != nil {
+		if req.Get("x-codex-window-id") == "" {
+			if windowID := strings.TrimSpace(c.GetString(ResponsesWindowIDContextKey)); windowID != "" {
+				req.Set("x-codex-window-id", windowID)
+			}
+		}
+		if req.Get("x-codex-turn-metadata") == "" {
+			if metadata := strings.TrimSpace(c.GetString(ResponsesTurnMetadataContextKey)); metadata != "" {
+				req.Set("x-codex-turn-metadata", metadata)
+			}
 		}
 	}
 
