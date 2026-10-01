@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/sjson"
 )
 
 func prepareCodexCacheAffinity(c *gin.Context, info *relaycommon.RelayInfo, request *dto.OpenAIResponsesRequest) {
@@ -21,7 +22,7 @@ func prepareCodexCacheAffinity(c *gin.Context, info *relaycommon.RelayInfo, requ
 		return
 	}
 
-	affinityKey, source := resolveCodexCacheAffinity(c, request)
+	affinityKey, source := resolveCodexCacheAffinity(c, info, request)
 	if affinityKey == "" {
 		logger.LogDebug(c, "[codex-cache] no stable affinity key available")
 		return
@@ -48,7 +49,7 @@ func prepareCodexCacheAffinity(c *gin.Context, info *relaycommon.RelayInfo, requ
 	)
 }
 
-func resolveCodexCacheAffinity(c *gin.Context, request *dto.OpenAIResponsesRequest) (string, string) {
+func resolveCodexCacheAffinity(c *gin.Context, info *relaycommon.RelayInfo, request *dto.OpenAIResponsesRequest) (string, string) {
 	if c != nil {
 		if sessionID := strings.TrimSpace(c.GetHeader("session-id")); sessionID != "" {
 			return sessionID, "session-id"
@@ -69,7 +70,47 @@ func resolveCodexCacheAffinity(c *gin.Context, request *dto.OpenAIResponsesReque
 		return derived, "stable-prefix"
 	}
 
+	if derived := deriveCodexClientScopeAffinity(c, info, request); derived != "" {
+		return derived, "client-scope"
+	}
+
 	return "", ""
+}
+
+func deriveCodexClientScopeAffinity(c *gin.Context, info *relaycommon.RelayInfo, request *dto.OpenAIResponsesRequest) string {
+	if info == nil || request == nil {
+		return ""
+	}
+	ua := ""
+	if c != nil {
+		ua = strings.TrimSpace(c.GetHeader("User-Agent"))
+	}
+	if info.UserId == 0 && info.TokenId == 0 && ua == "" {
+		return ""
+	}
+	h := sha256.New()
+	writeAffinityPart(h, []byte("new-api-codex-client-scope-v1"))
+	writeAffinityPart(h, []byte(fmt.Sprintf("%d:%d", info.UserId, info.TokenId)))
+	writeAffinityPart(h, []byte(request.Model))
+	writeAffinityPart(h, []byte(ua))
+	sum := h.Sum(nil)
+	return "na-client-" + hex.EncodeToString(sum[:16])
+}
+
+func injectCodexPromptCacheKeyIfNeeded(c *gin.Context, request *dto.OpenAIResponsesRequest, body []byte) ([]byte, bool, error) {
+	if request == nil || decodePromptCacheKey(request.PromptCacheKey) != "" || c == nil {
+		return body, false, nil
+	}
+	key := strings.TrimSpace(c.GetString(codex.CacheAffinityContextKey))
+	if key == "" {
+		return body, false, nil
+	}
+	patched, err := sjson.SetBytes(body, "prompt_cache_key", key)
+	if err != nil {
+		return nil, false, err
+	}
+	logger.LogDebug(c, "[codex-cache] injected prompt_cache_key into passthrough body")
+	return patched, true, nil
 }
 
 func decodePromptCacheKey(raw json.RawMessage) string {
