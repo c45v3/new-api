@@ -22,8 +22,8 @@ const (
 	responsesLiteHeader     = "x-openai-internal-codex-responses-lite"
 )
 
-func usesResponsesLite(info *relaycommon.RelayInfo) bool {
-	if info == nil {
+func UsesResponsesLite(info *relaycommon.RelayInfo) bool {
+	if info == nil || info.RelayMode != relayconstant.RelayModeResponses {
 		return false
 	}
 	model := strings.TrimSpace(info.GetUpstreamModelName())
@@ -79,6 +79,13 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 
 	if isCompact {
 		return request, nil
+	}
+	if UsesResponsesLite(info) {
+		if request.Reasoning == nil {
+			request.Reasoning = &dto.Reasoning{}
+		}
+		request.Reasoning.Context = json.RawMessage(`"all_turns"`)
+		request.ParallelToolCalls = json.RawMessage("false")
 	}
 	// codex: store must be false
 	request.Store = json.RawMessage("false")
@@ -166,7 +173,7 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	if req.Get("originator") == "" {
 		req.Set("originator", "codex_cli_rs")
 	}
-	if usesResponsesLite(info) && req.Get(responsesLiteHeader) == "" {
+	if UsesResponsesLite(info) && req.Get(responsesLiteHeader) == "" {
 		req.Set(responsesLiteHeader, "true")
 	}
 	if req.Get("session-id") == "" && c != nil {
