@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/relay/channel/codex"
@@ -231,5 +232,68 @@ func TestApplyCodexFallbackMetadataKeepsWindowStableAndTurnFresh(t *testing.T) {
 	}
 	if first["turn_id"] == second["turn_id"] {
 		t.Fatal("turn id must change per request")
+	}
+}
+
+func TestApplyCodexFallbackLitePrefix(t *testing.T) {
+	c := newCodexAffinityTestContext(nil)
+	request := &dto.OpenAIResponsesRequest{
+		Model:        "gpt-6-luna",
+		Input:        json.RawMessage(`[{"role":"user","content":[{"type":"input_text","text":"hello"}]}]`),
+		Instructions: json.RawMessage(`""`),
+	}
+
+	if err := applyCodexFallbackLitePrefix(c, request, "affinity-key"); err != nil {
+		t.Fatal(err)
+	}
+	var items []map[string]any
+	if err := json.Unmarshal(request.Input, &items); err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 input items, got %d", len(items))
+	}
+	if items[0]["type"] != "additional_tools" || items[0]["role"] != "developer" {
+		t.Fatalf("unexpected lite prefix: %v", items[0])
+	}
+	if id, _ := items[0]["id"].(string); !strings.HasPrefix(id, "at_") {
+		t.Fatalf("unexpected additional_tools id: %v", items[0]["id"])
+	}
+	if request.Instructions != nil {
+		t.Fatalf("lite instructions must be omitted, got %s", request.Instructions)
+	}
+	if string(request.ToolChoice) != `"auto"` {
+		t.Fatalf("tool_choice=%s", request.ToolChoice)
+	}
+
+	firstID := items[0]["id"]
+	request2 := &dto.OpenAIResponsesRequest{
+		Model:        "gpt-6-luna",
+		Input:        json.RawMessage(`[{"role":"user","content":[{"type":"input_text","text":"hello"}]}]`),
+		Instructions: json.RawMessage(`""`),
+	}
+	if err := applyCodexFallbackLitePrefix(c, request2, "affinity-key"); err != nil {
+		t.Fatal(err)
+	}
+	var items2 []map[string]any
+	if err := json.Unmarshal(request2.Input, &items2); err != nil {
+		t.Fatal(err)
+	}
+	if items2[0]["id"] != firstID {
+		t.Fatalf("additional_tools id must be stable: first=%v second=%v", firstID, items2[0]["id"])
+	}
+}
+
+func TestApplyCodexFallbackLitePrefixSkipsNonEmptyTools(t *testing.T) {
+	request := &dto.OpenAIResponsesRequest{
+		Input: json.RawMessage(`[{"role":"user","content":"hello"}]`),
+		Tools: json.RawMessage(`[{"type":"function","name":"tool"}]`),
+	}
+	original := append([]byte(nil), request.Input...)
+	if err := applyCodexFallbackLitePrefix(nil, request, "affinity-key"); err != nil {
+		t.Fatal(err)
+	}
+	if string(request.Input) != string(original) {
+		t.Fatalf("request with non-empty tools must not be partially converted: %s", request.Input)
 	}
 }

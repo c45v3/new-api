@@ -75,7 +75,7 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 	// Channel SystemPrompt is applied by ResponsesHelper onto instructions
 	// before conversion so retry/channel switches cannot double-inject.
 	// Codex still requires the field to be present.
-	if len(request.Instructions) == 0 {
+	if len(request.Instructions) == 0 && !UsesResponsesLite(info) {
 		request.Instructions = json.RawMessage(`""`)
 	}
 

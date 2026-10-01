@@ -147,3 +147,17 @@ func TestSetupRequestHeaderEnablesResponsesLiteForLunaOnly(t *testing.T) {
 		})
 	}
 }
+
+func TestConvertOpenAIResponsesRequestOmitsEmptyInstructionsForLite(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "gpt-6-luna"},
+		RelayMode:   relayconstant.RelayModeResponses,
+	}
+	converted, err := (&Adaptor{}).ConvertOpenAIResponsesRequest(nil, info, dto.OpenAIResponsesRequest{
+		Model: "gpt-6-luna",
+		Input: json.RawMessage(`[{"role":"user","content":"hello"}]`),
+	})
+	require.NoError(t, err)
+	request := converted.(dto.OpenAIResponsesRequest)
+	assert.Nil(t, request.Instructions)
+}

@@ -32,9 +32,14 @@ func prepareCodexCacheAffinity(c *gin.Context, info *relaycommon.RelayInfo, requ
 	c.Set(codex.CacheAffinityContextKey, affinityKey)
 
 	if !info.IsPassThroughEnabled() && codex.UsesResponsesLite(info) &&
-		(source == "stable-prefix" || source == "client-scope") && len(request.ClientMetadata) == 0 {
-		if err := applyCodexFallbackMetadata(c, info, request, affinityKey); err != nil {
-			logger.LogDebug(c, "[codex-cache] failed to build fallback client metadata: %v", err)
+		(source == "stable-prefix" || source == "client-scope") {
+		if err := applyCodexFallbackLitePrefix(c, request, affinityKey); err != nil {
+			logger.LogDebug(c, "[codex-lite] failed to build fallback lite prefix: %v", err)
+		}
+		if len(request.ClientMetadata) == 0 {
+			if err := applyCodexFallbackMetadata(c, info, request, affinityKey); err != nil {
+				logger.LogDebug(c, "[codex-cache] failed to build fallback client metadata: %v", err)
+			}
 		}
 	}
 
@@ -120,6 +125,76 @@ func injectCodexPromptCacheKeyIfNeeded(c *gin.Context, request *dto.OpenAIRespon
 	}
 	logger.LogDebug(c, "[codex-cache] injected prompt_cache_key into passthrough body")
 	return patched, true, nil
+}
+
+func applyCodexFallbackLitePrefix(c *gin.Context, request *dto.OpenAIResponsesRequest, affinityKey string) error {
+	if request == nil || affinityKey == "" {
+		return nil
+	}
+	if len(request.Tools) > 0 {
+		var tools []any
+		if err := json.Unmarshal(request.Tools, &tools); err != nil || len(tools) > 0 {
+			return nil
+		}
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(request.Input, &items); err != nil {
+		return nil
+	}
+	if len(items) > 0 {
+		var first struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(items[0], &first); err == nil && first.Type == "additional_tools" {
+			return nil
+		}
+	}
+
+	prefixNamespace := uuid.NewSHA1(uuid.NameSpaceOID, []byte(affinityKey))
+	additionalToolsID := "at_" + uuid.NewSHA1(prefixNamespace, []byte("[]")).String()
+	prefix := []json.RawMessage{
+		json.RawMessage(fmt.Sprintf(`{"id":%q,"type":"additional_tools","role":"developer","tools":[]}`, additionalToolsID)),
+	}
+
+	if len(request.Instructions) > 0 {
+		var instructions string
+		if err := json.Unmarshal(request.Instructions, &instructions); err == nil && instructions != "" {
+			messageID := "msg_" + uuid.NewSHA1(prefixNamespace, []byte(instructions)).String()
+			message := map[string]any{
+				"id":   messageID,
+				"type": "message",
+				"role": "developer",
+				"content": []map[string]any{{
+					"type": "input_text",
+					"text": instructions,
+				}},
+				"internal_chat_message_metadata_passthrough": map[string]any{
+					"content_item_kinds": []string{"model.base_instructions"},
+				},
+			}
+			encoded, err := json.Marshal(message)
+			if err != nil {
+				return err
+			}
+			prefix = append(prefix, encoded)
+		}
+	}
+
+	items = append(prefix, items...)
+	encodedInput, err := json.Marshal(items)
+	if err != nil {
+		return err
+	}
+	request.Input = encodedInput
+	request.Instructions = nil
+	request.Tools = nil
+	if len(request.ToolChoice) == 0 {
+		request.ToolChoice = json.RawMessage(`"auto"`)
+	}
+	if c != nil {
+		logger.LogDebug(c, "[codex-lite] added stable additional_tools prefix id=%q", additionalToolsID)
+	}
+	return nil
 }
 
 func applyCodexFallbackMetadata(c *gin.Context, info *relaycommon.RelayInfo, request *dto.OpenAIResponsesRequest, affinityKey string) error {
