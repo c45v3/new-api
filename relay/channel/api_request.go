@@ -333,6 +333,16 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		return nil, err
 	}
 	applyHeaderOverrideToRequest(req, headerOverride)
+	if strings.Contains(fullRequestURL, "/backend-api/codex/") {
+		logger.LogInfo(c, fmt.Sprintf(
+			"[codex-cache][out] session-id=%q thread-id=%q x-codex-turn-state=%q originator=%q user-agent=%q",
+			req.Header.Get("session-id"),
+			req.Header.Get("thread-id"),
+			req.Header.Get("x-codex-turn-state"),
+			req.Header.Get("originator"),
+			req.Header.Get("user-agent"),
+		))
+	}
 	resp, err := doRequest(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)

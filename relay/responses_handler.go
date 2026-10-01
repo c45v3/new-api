@@ -66,6 +66,22 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		return types.NewError(fmt.Errorf("failed to copy request to GeneralOpenAIRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
 
+	if info.ApiType == constant.APITypeCodex {
+		logger.LogInfo(c, fmt.Sprintf(
+			"[codex-cache][in] model=%q prompt_cache_key=%s session-id=%q thread-id=%q x-codex-turn-state=%q service_tier=%q reasoning=%+v tools_bytes=%d instructions_bytes=%d passthrough=%t",
+			request.Model,
+			string(request.PromptCacheKey),
+			c.GetHeader("session-id"),
+			c.GetHeader("thread-id"),
+			c.GetHeader("x-codex-turn-state"),
+			request.ServiceTier,
+			request.Reasoning,
+			len(request.Tools),
+			len(request.Instructions),
+			info.IsPassThroughEnabled(),
+		))
+	}
+
 	err = helper.ModelMappedHelper(c, info, request)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
