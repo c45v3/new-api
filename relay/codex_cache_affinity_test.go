@@ -161,36 +161,3 @@ func TestInjectCodexPromptCacheKeyPreservesExplicitValue(t *testing.T) {
 		t.Fatalf("body changed unexpectedly: %s", patched)
 	}
 }
-
-func TestAddCodexStablePrefixBreakpoint(t *testing.T) {
-	input := json.RawMessage(`[
-		{"role":"user","content":[
-			{"type":"input_text","text":"stable document"},
-			{"type":"input_text","text":"translate it"}
-		]},
-		{"role":"assistant","content":"done"},
-		{"role":"user","content":"summarize"}
-	]`)
-
-	patched, changed, err := addCodexStablePrefixBreakpoint(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !changed {
-		t.Fatal("expected explicit breakpoint")
-	}
-
-	var decoded []map[string]any
-	if err := json.Unmarshal(patched, &decoded); err != nil {
-		t.Fatal(err)
-	}
-	firstContent := decoded[0]["content"].([]any)
-	lastBlock := firstContent[len(firstContent)-1].(map[string]any)
-	breakpoint := lastBlock["prompt_cache_breakpoint"].(map[string]any)
-	if breakpoint["mode"] != "explicit" {
-		t.Fatalf("breakpoint=%v", breakpoint)
-	}
-	if _, exists := decoded[2]["prompt_cache_breakpoint"]; exists {
-		t.Fatal("breakpoint must stay on the stable first-user prefix")
-	}
-}

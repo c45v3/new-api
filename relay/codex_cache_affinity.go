@@ -14,7 +14,6 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 
 	"github.com/gin-gonic/gin"
-	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
@@ -31,13 +30,6 @@ func prepareCodexCacheAffinity(c *gin.Context, info *relaycommon.RelayInfo, requ
 
 	c.Set(codex.CacheAffinityContextKey, affinityKey)
 
-	if !info.IsPassThroughEnabled() && codex.UsesResponsesLite(info) &&
-		(source == "stable-prefix" || source == "client-scope") {
-		if patchedInput, changed, err := addCodexStablePrefixBreakpoint(request.Input); err == nil && changed {
-			request.Input = patchedInput
-			logger.LogDebug(c, "[codex-cache] added explicit breakpoint to stable user prefix")
-		}
-	}
 
 	promptCacheKey := decodePromptCacheKey(request.PromptCacheKey)
 	if promptCacheKey == "" && !info.IsPassThroughEnabled() {
@@ -120,42 +112,6 @@ func injectCodexPromptCacheKeyIfNeeded(c *gin.Context, request *dto.OpenAIRespon
 	}
 	logger.LogDebug(c, "[codex-cache] injected prompt_cache_key into passthrough body")
 	return patched, true, nil
-}
-
-func addCodexStablePrefixBreakpoint(raw json.RawMessage) (json.RawMessage, bool, error) {
-	if len(raw) == 0 {
-		return raw, false, nil
-	}
-	items := gjson.ParseBytes(raw)
-	if !items.IsArray() {
-		return raw, false, nil
-	}
-	for i, item := range items.Array() {
-		if !strings.EqualFold(strings.TrimSpace(item.Get("role").String()), "user") {
-			continue
-		}
-		content := item.Get("content")
-		if !content.IsArray() {
-			return raw, false, nil
-		}
-		blocks := content.Array()
-		for j := len(blocks) - 1; j >= 0; j-- {
-			if blocks[j].Get("type").String() != "input_text" {
-				continue
-			}
-			if strings.TrimSpace(blocks[j].Get("text").String()) == "" {
-				continue
-			}
-			path := fmt.Sprintf("%d.content.%d.prompt_cache_breakpoint.mode", i, j)
-			patched, err := sjson.SetBytes(raw, path, "explicit")
-			if err != nil {
-				return nil, false, err
-			}
-			return json.RawMessage(patched), true, nil
-		}
-		return raw, false, nil
-	}
-	return raw, false, nil
 }
 
 func decodePromptCacheKey(raw json.RawMessage) string {
