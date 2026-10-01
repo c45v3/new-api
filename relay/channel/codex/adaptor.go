@@ -17,6 +17,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const CacheAffinityContextKey = "codex_cache_affinity_key"
+
 type Adaptor struct {
 }
 
@@ -149,6 +151,11 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	}
 	if req.Get("originator") == "" {
 		req.Set("originator", "codex_cli_rs")
+	}
+	if req.Get("session-id") == "" && c != nil {
+		if affinityKey := strings.TrimSpace(c.GetString(CacheAffinityContextKey)); affinityKey != "" {
+			req.Set("session-id", affinityKey)
+		}
 	}
 
 	// chatgpt.com/backend-api/codex/responses is strict about Content-Type.

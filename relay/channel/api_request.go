@@ -334,7 +334,7 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	}
 	applyHeaderOverrideToRequest(req, headerOverride)
 	if strings.Contains(fullRequestURL, "/backend-api/codex/") {
-		logger.LogInfo(c, fmt.Sprintf(
+		logger.LogDebug(c, fmt.Sprintf(
 			"[codex-cache][out] session-id=%q thread-id=%q x-codex-turn-state=%q originator=%q user-agent=%q",
 			req.Header.Get("session-id"),
 			req.Header.Get("thread-id"),
