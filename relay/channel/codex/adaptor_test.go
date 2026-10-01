@@ -117,3 +117,33 @@ func TestSetupRequestHeaderPreservesExplicitThreadID(t *testing.T) {
 	assert.Equal(t, "affinity-key", headers.Get("session-id"))
 	assert.Equal(t, "client-thread", headers.Get("thread-id"))
 }
+
+func TestSetupRequestHeaderEnablesResponsesLiteForLunaOnly(t *testing.T) {
+	tests := []struct {
+		name     string
+		model    string
+		expected string
+	}{
+		{name: "luna", model: "gpt-6-luna", expected: "true"},
+		{name: "sol", model: "gpt-6.1-sol", expected: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+			headers := http.Header{}
+			info := &relaycommon.RelayInfo{
+				ChannelMeta: &relaycommon.ChannelMeta{
+					ApiKey:            `{"access_token":"token","account_id":"account"}`,
+					UpstreamModelName: tt.model,
+				},
+			}
+
+			err := (&Adaptor{}).SetupRequestHeader(c, &headers, info)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, headers.Get(responsesLiteHeader))
+		})
+	}
+}

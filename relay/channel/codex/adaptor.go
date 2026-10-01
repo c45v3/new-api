@@ -17,7 +17,21 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const CacheAffinityContextKey = "codex_cache_affinity_key"
+const (
+	CacheAffinityContextKey = "codex_cache_affinity_key"
+	responsesLiteHeader     = "x-openai-internal-codex-responses-lite"
+)
+
+func usesResponsesLite(info *relaycommon.RelayInfo) bool {
+	if info == nil {
+		return false
+	}
+	model := strings.TrimSpace(info.GetUpstreamModelName())
+	if model == "" {
+		model = strings.TrimSpace(info.OriginModelName)
+	}
+	return strings.EqualFold(model, "gpt-6-luna")
+}
 
 type Adaptor struct {
 }
@@ -151,6 +165,9 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	}
 	if req.Get("originator") == "" {
 		req.Set("originator", "codex_cli_rs")
+	}
+	if usesResponsesLite(info) && req.Get(responsesLiteHeader) == "" {
+		req.Set(responsesLiteHeader, "true")
 	}
 	if req.Get("session-id") == "" && c != nil {
 		if affinityKey := strings.TrimSpace(c.GetString(CacheAffinityContextKey)); affinityKey != "" {
