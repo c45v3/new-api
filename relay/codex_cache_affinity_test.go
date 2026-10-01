@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/QuantumNous/new-api/relay/channel/codex"
+	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 
 	"github.com/gin-gonic/gin"
@@ -28,19 +30,19 @@ func TestResolveCodexCacheAffinityPriority(t *testing.T) {
 		"thread-id":  "thread-key",
 	})
 
-	key, source := resolveCodexCacheAffinity(c, request)
+	key, source := resolveCodexCacheAffinity(c, &common.RelayInfo{}, request)
 	if key != "session-key" || source != "session-id" {
 		t.Fatalf("got key=%q source=%q", key, source)
 	}
 
 	c = newCodexAffinityTestContext(map[string]string{"thread-id": "thread-key"})
-	key, source = resolveCodexCacheAffinity(c, request)
+	key, source = resolveCodexCacheAffinity(c, &common.RelayInfo{}, request)
 	if key != "prompt-key" || source != "prompt_cache_key" {
 		t.Fatalf("got key=%q source=%q", key, source)
 	}
 
 	request.PromptCacheKey = nil
-	key, source = resolveCodexCacheAffinity(c, request)
+	key, source = resolveCodexCacheAffinity(c, &common.RelayInfo{}, request)
 	if key != "thread-key" || source != "thread-id" {
 		t.Fatalf("got key=%q source=%q", key, source)
 	}
@@ -99,5 +101,63 @@ func TestDeriveCodexCacheAffinityRequiresStableInput(t *testing.T) {
 
 	if key := deriveCodexCacheAffinity(request); key != "" {
 		t.Fatalf("expected no affinity key, got %q", key)
+	}
+}
+
+func TestResolveCodexCacheAffinityFallsBackToClientScope(t *testing.T) {
+	request := &dto.OpenAIResponsesRequest{
+		Model: "gpt-test",
+		Input: json.RawMessage(`[{"type":"function_call_output","call_id":"1","output":"ok"}]`),
+	}
+	info := &common.RelayInfo{UserId: 7, TokenId: 11}
+	c := newCodexAffinityTestContext(map[string]string{"User-Agent": "bare-client/1.0"})
+
+	key, source := resolveCodexCacheAffinity(c, info, request)
+	if key == "" || source != "client-scope" {
+		t.Fatalf("got key=%q source=%q", key, source)
+	}
+	key2, source2 := resolveCodexCacheAffinity(c, info, request)
+	if key2 != key || source2 != source {
+		t.Fatalf("expected stable client-scope affinity, first=%q/%q second=%q/%q", key, source, key2, source2)
+	}
+}
+
+func TestInjectCodexPromptCacheKeyIfNeeded(t *testing.T) {
+	c := newCodexAffinityTestContext(nil)
+	c.Set(codex.CacheAffinityContextKey, "cache-key")
+	request := &dto.OpenAIResponsesRequest{}
+	body := []byte(`{"model":"gpt-test","input":"hello"}`)
+
+	patched, changed, err := injectCodexPromptCacheKeyIfNeeded(c, request, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("expected passthrough body to be patched")
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(patched, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded["prompt_cache_key"] != "cache-key" {
+		t.Fatalf("prompt_cache_key=%v", decoded["prompt_cache_key"])
+	}
+}
+
+func TestInjectCodexPromptCacheKeyPreservesExplicitValue(t *testing.T) {
+	c := newCodexAffinityTestContext(nil)
+	c.Set(codex.CacheAffinityContextKey, "derived-key")
+	request := &dto.OpenAIResponsesRequest{PromptCacheKey: json.RawMessage(`"explicit-key"`)}
+	body := []byte(`{"model":"gpt-test","prompt_cache_key":"explicit-key"}`)
+
+	patched, changed, err := injectCodexPromptCacheKeyIfNeeded(c, request, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed {
+		t.Fatal("explicit prompt_cache_key must not be overwritten")
+	}
+	if string(patched) != string(body) {
+		t.Fatalf("body changed unexpectedly: %s", patched)
 	}
 }
