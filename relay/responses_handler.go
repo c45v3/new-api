@@ -2,13 +2,10 @@ package relay
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/logger"
+
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -20,17 +17,6 @@ import (
 )
 
 func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
-	info.InitChannelMeta(c)
-	if info.RelayMode == relayconstant.RelayModeResponsesCompact &&
-		!common.SupportsResponsesCompact(info.ChannelType, info.ApiType) {
-		return types.NewErrorWithStatusCode(
-			fmt.Errorf("unsupported endpoint %q for api type %d", "/v1/responses/compact", info.ApiType),
-			types.ErrorCodeInvalidRequest,
-			http.StatusBadRequest,
-			types.ErrOptionWithSkipRetry(),
-		)
-	}
-
 	var responsesReq *dto.OpenAIResponsesRequest
 	switch req := info.Request.(type) {
 	case *dto.OpenAIResponsesRequest:
@@ -61,103 +47,11 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		)
 	}
 
-	request, err := common.DeepCopy(responsesReq)
-	if err != nil {
-		return types.NewError(fmt.Errorf("failed to copy request to GeneralOpenAIRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	adaptor, requestBody, closer, apiErr := PrepareResponsesRequest(c, info, responsesReq)
+	if apiErr != nil {
+		return apiErr
 	}
-
-
-	err = helper.ModelMappedHelper(c, info, request)
-	if err != nil {
-		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
-	}
-	if err := helper.ApplyReasoningModelSuffix(c, info, request); err != nil {
-		return newConvertRequestFailedError(c, info, err)
-	}
-	if !info.IsPassThroughEnabled() {
-		if err := applyResponsesSystemPromptIfNeeded(c, info, request); err != nil {
-			return types.NewErrorWithStatusCode(err, types.ErrorCodeConvertRequestFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
-		}
-	}
-	prepareCodexCacheAffinity(c, info, request)
-
-	adaptor := GetAdaptor(info.ApiType)
-	if adaptor == nil {
-		return types.NewError(fmt.Errorf("invalid api type: %d", info.ApiType), types.ErrorCodeInvalidApiType, types.ErrOptionWithSkipRetry())
-	}
-	adaptor.Init(info)
-	var requestBody io.Reader
-	if info.IsPassThroughEnabled() {
-		storage, err := common.GetBodyStorage(c)
-		if err != nil {
-			return types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
-		}
-		if info.ApiType == constant.APITypeCodex {
-			bodyBytes, bodyErr := storage.Bytes()
-			if bodyErr != nil {
-				return types.NewError(bodyErr, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
-			}
-			patchedBody, changed, patchErr := injectCodexPromptCacheKeyIfNeeded(c, request, bodyBytes)
-			if patchErr != nil {
-				return types.NewError(fmt.Errorf("failed to inject codex prompt cache key: %w", patchErr), types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
-			}
-			if changed {
-				relaycommon.CaptureRequestBodyForLog(c, info, patchedBody)
-				body, closer, bodyErr := relaycommon.NewOutboundJSONBody(patchedBody)
-				if bodyErr != nil {
-					return types.NewError(bodyErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
-				}
-				defer closer.Close()
-				requestBody = body
-			} else {
-				if info.ChannelSetting.RequestBodyLoggingEnabled {
-					relaycommon.CaptureRequestBodyForLog(c, info, bodyBytes)
-				}
-				requestBody = common.NewReplayableBodyReader(storage)
-			}
-		} else {
-			if info.ChannelSetting.RequestBodyLoggingEnabled {
-				if bodyBytes, bodyErr := storage.Bytes(); bodyErr == nil {
-					relaycommon.CaptureRequestBodyForLog(c, info, bodyBytes)
-				}
-			}
-			requestBody = common.NewReplayableBodyReader(storage)
-		}
-	} else {
-		convertedRequest, err := adaptor.ConvertOpenAIResponsesRequest(c, info, *request)
-		if err != nil {
-			return newConvertRequestFailedError(c, info, err)
-		}
-		relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
-		jsonData, err := common.Marshal(convertedRequest)
-		if err != nil {
-			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
-		}
-
-		// remove disabled fields for OpenAI Responses API
-		jsonData, err = relaycommon.RemoveDisabledFields(jsonData, info.ChannelOtherSettings, info.ChannelSetting, info.ChannelId)
-		if err != nil {
-			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
-		}
-
-		// apply param override
-		if len(info.ParamOverride) > 0 {
-			jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
-			if err != nil {
-				return newAPIErrorFromParamOverride(err)
-			}
-		}
-
-		relaycommon.CaptureRequestBodyForLog(c, info, jsonData)
-		logger.LogDebug(c, "requestBody: %s", jsonData)
-		body, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
-		if err != nil {
-			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
-		}
-		defer closer.Close()
-		jsonData = nil
-		requestBody = body
-	}
+	defer closer.Close()
 
 	var httpResp *http.Response
 	resp, err := adaptor.DoRequest(c, info, requestBody)
@@ -203,56 +97,16 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		return nil
 	}
 
-	if strings.HasPrefix(info.OriginModelName, "gpt-4o-audio") {
-		service.PostAudioConsumeQuota(c, info, usageDto, "")
-	} else {
-		service.PostTextConsumeQuota(c, info, usageDto, nil)
-	}
+	ConsumeResponsesQuota(c, info, usageDto)
 	return nil
 }
 
-// applyResponsesSystemPromptIfNeeded maps channel SystemPrompt onto Responses
-// `instructions`. It does not write `input`. Callers must skip this when
-// Request Body Passthrough is active so the original body stays byte-identical.
-func applyResponsesSystemPromptIfNeeded(c *gin.Context, info *relaycommon.RelayInfo, request *dto.OpenAIResponsesRequest) error {
-	if info == nil || info.ChannelMeta == nil || request == nil {
-		return nil
+// ConsumeResponsesQuota applies the same settlement dispatch to HTTP and
+// WebSocket Responses usage. Compact requests keep their separate repricing.
+func ConsumeResponsesQuota(c *gin.Context, info *relaycommon.RelayInfo, usage *dto.Usage) {
+	if strings.HasPrefix(info.OriginModelName, "gpt-4o-audio") {
+		service.PostAudioConsumeQuota(c, info, usage, nil)
+		return
 	}
-	systemPrompt := info.ChannelSetting.SystemPrompt
-	if systemPrompt == "" {
-		return nil
-	}
-
-	merged := systemPrompt
-	if len(request.Instructions) > 0 {
-		var probe any
-		if err := common.Unmarshal(request.Instructions, &probe); err != nil {
-			return fmt.Errorf("invalid responses instructions: %w", err)
-		}
-		switch value := probe.(type) {
-		case nil:
-		case string:
-			if value != "" {
-				if !info.ChannelSetting.SystemPromptOverride {
-					return nil
-				}
-				if c != nil {
-					common.SetContextKey(c, constant.ContextKeySystemPromptOverride, true)
-				}
-				merged = systemPrompt + "\n" + value
-			}
-		default:
-			if !info.ChannelSetting.SystemPromptOverride {
-				return nil
-			}
-			return fmt.Errorf("invalid responses instructions: expected JSON string, got %s", common.GetJsonType(request.Instructions))
-		}
-	}
-
-	encoded, err := common.Marshal(merged)
-	if err != nil {
-		return err
-	}
-	request.Instructions = encoded
-	return nil
+	service.PostTextConsumeQuota(c, info, usage, nil)
 }

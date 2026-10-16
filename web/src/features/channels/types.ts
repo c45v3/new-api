@@ -81,6 +81,7 @@ export type Channel = z.infer<typeof channelSchema>
 
 export interface ChannelSettings {
   task_plugin_key?: string
+  task_extend_plugin_keys?: string[]
   force_format?: boolean
   thinking_to_content?: boolean
   proxy?: string
@@ -93,11 +94,13 @@ export interface ChannelSettings {
     | 'body_passthrough'
     | 'transparent'
   transparent_billing?: '' | 'external'
+  responses_websocket_enabled?: boolean
   system_prompt?: string
   system_prompt_override?: boolean
   request_body_logging_enabled?: boolean
   http_protocol?: 'auto' | 'http1' | string
   http2_connection_shards?: number
+  tls_insecure_skip_verify?: boolean
 }
 
 export interface ChannelOtherSettings {
@@ -113,6 +116,7 @@ export interface ChannelOtherSettings {
   allow_speed?: boolean
   claude_beta_query?: boolean
   disguise_as_claude_code?: boolean
+  ollama_openai_chat?: boolean
   disable_task_polling_sleep?: boolean
   upstream_model_update_check_enabled?: boolean
   upstream_model_update_auto_sync_enabled?: boolean
@@ -132,6 +136,7 @@ export interface AdvancedCustomRoute {
   converter?: AdvancedCustomConverter
   models?: string[]
   auth?: AdvancedCustomRouteAuth
+  pass_through_body_enabled?: boolean
 }
 
 export interface AdvancedCustomRouteAuth {
@@ -149,6 +154,8 @@ export type AdvancedCustomConverter =
   | 'openai_responses_to_gemini_generate_content'
   | 'gemini_generate_content_to_openai_chat_completions'
   | 'openai_chat_completions_to_gemini_generate_content'
+  | 'claude_messages_to_openai_responses'
+  | 'gemini_generate_content_to_openai_responses'
 
 export type AdvancedCustomAuthType = 'none' | 'header' | 'query'
 
@@ -190,6 +197,10 @@ export interface ChannelOpsResponse {
   data?: {
     retry_times: number
     transparent_relay_channel_types?: number[]
+    request_policy?: {
+      automatic_disable: boolean
+      source: string
+    }
   }
 }
 
