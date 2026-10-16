@@ -111,6 +111,12 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	if relayInfo.ReasoningEffort != "" {
 		other.SetPublic("reasoning_effort", relayInfo.ReasoningEffort)
 	}
+	if relayInfo.UpstreamResponseModel != "" {
+		other.SetPublic("upstream_response_model", relayInfo.UpstreamResponseModel)
+	}
+	if relayInfo.UpstreamSentModel != "" {
+		other.SetPublic("upstream_sent_model", relayInfo.UpstreamSentModel)
+	}
 	if relayInfo.IsModelMapped {
 		other.SetPublic("is_model_mapped", true)
 		other.SetPublic("upstream_model_name", relayInfo.UpstreamModelName)

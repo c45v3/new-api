@@ -1,5 +1,8 @@
 {
   "translation": {
+    "Mapped Model": "映射模型",
+    "Upstream Sent Model": "上游请求模型",
+    "Upstream Response Model": "上游响应模型",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

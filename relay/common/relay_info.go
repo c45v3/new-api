@@ -104,6 +104,8 @@ type RelayInfo struct {
 	// separate from OriginModelName and UpstreamModelName so virtual pricing
 	// aliases never participate in channel selection or upstream routing.
 	BillingModelName string
+	UpstreamResponseModel string
+	UpstreamSentModel string
 
 	RequestURLPath     string
 	RequestHeaders     map[string]string

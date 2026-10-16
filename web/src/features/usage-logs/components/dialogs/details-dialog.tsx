@@ -1239,18 +1239,22 @@ export function DetailsDialog(props: DetailsDialogProps) {
         )}
 
         {/* Model mapping */}
-        {other?.is_model_mapped && other?.upstream_model_name && (
+        {(other?.upstream_response_model || other?.upstream_sent_model || (other?.is_model_mapped && other?.upstream_model_name)) && (
           <DetailSection label={t('Model Mapping')}>
             <DetailRow
               label={t('Request Model')}
               value={props.log.model_name}
               mono
             />
-            <DetailRow
-              label={t('Actual Model')}
-              value={other.upstream_model_name}
-              mono
-            />
+            {other?.is_model_mapped && other?.upstream_model_name && (
+              <DetailRow label={t('Mapped Model')} value={other.upstream_model_name} mono />
+            )}
+            {other?.upstream_sent_model && (
+              <DetailRow label={t('Upstream Sent Model')} value={other.upstream_sent_model} mono />
+            )}
+            {other?.upstream_response_model && (
+              <DetailRow label={t('Upstream Response Model')} value={other.upstream_response_model} mono />
+            )}
           </DetailSection>
         )}
 
