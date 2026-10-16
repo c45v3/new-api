@@ -12,6 +12,8 @@ import (
 
 var StartTime = time.Now().Unix() // unit: second
 var Version = "v0.0.0"            // this hard coding will be replaced automatically when building, no need to manually change
+var GitCommit = "unknown" // injected at build time
+var BuildTime = "unknown" // UTC RFC3339, injected at build time
 var SystemName = "New API"
 var Footer = ""
 var Logo = ""

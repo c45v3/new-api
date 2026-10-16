@@ -24,6 +24,7 @@ import { toast } from 'sonner'
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 import { Markdown } from '@/components/ui/markdown'
+import { useStatus } from '@/hooks/use-status'
 import { formatTimestamp, formatTimestampToDate } from '@/lib/format'
 
 import { SettingsSection } from '../components/settings-section'
@@ -50,8 +51,17 @@ export function UpdateCheckerSection({
   const [dialogOpen, setDialogOpen] = useState(false)
   const [release, setRelease] = useState<ReleaseInfo | null>(null)
 
+  const { status } = useStatus()
   const uptime = startTime ? formatTimestamp(startTime) : t('Unknown')
-  const version = currentVersion || t('Unknown')
+  const commitValue = status?.git_commit
+  const gitCommit = typeof commitValue === 'string' ? commitValue.trim() : ''
+  const hasCommit = /^[0-9a-f]{7,40}$/i.test(gitCommit)
+  const commitLabel = hasCommit ? gitCommit.slice(0, 12) : t('Unknown')
+  const timeValue = status?.build_time
+  const buildTimestamp = typeof timeValue === 'string' ? Date.parse(timeValue) : NaN
+  const buildLabel = Number.isFinite(buildTimestamp)
+    ? formatTimestampToDate(buildTimestamp, 'milliseconds')
+    : t('Unknown')
 
   const handleCheckUpdates = async () => {
     setChecking(true)
@@ -107,12 +117,29 @@ export function UpdateCheckerSection({
     <>
       <SettingsSection title={t('System maintenance')}>
         <div className='space-y-6'>
-          <div className='grid gap-4 md:grid-cols-2'>
+          <div className='grid gap-4'>
             <div className='rounded-lg border p-4'>
               <div className='text-muted-foreground text-sm'>
                 {t('Current version')}
               </div>
-              <div className='text-lg font-semibold'>{version}</div>
+              {hasCommit ? (
+                <a
+                  href={`https://github.com/c45v3/new-api/commit/${gitCommit}`}
+                  target='_blank'
+                  rel='noopener noreferrer'
+                  title={gitCommit}
+                  className='inline-flex items-center gap-1 text-lg font-semibold hover:underline'
+                >
+                  <span className='font-mono break-all'>{commitLabel}</span>
+                  <ExternalLinkIcon className='h-4 w-4 shrink-0' />
+                </a>
+              ) : (
+                <div className='text-lg font-semibold break-all'>{commitLabel}</div>
+              )}
+            </div>
+            <div className='rounded-lg border p-4'>
+              <div className='text-muted-foreground text-sm'>{t('Build time')}</div>
+              <div className='text-lg font-semibold break-all'>{buildLabel}</div>
             </div>
             <div className='rounded-lg border p-4'>
               <div className='text-muted-foreground text-sm'>
