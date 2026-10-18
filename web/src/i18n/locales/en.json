@@ -7400,6 +7400,7 @@
     "Importing a .md or .txt file replaces the current system prompt.": "Importing a .md or .txt file replaces the current system prompt.",
     "Request Body": "Request Body",
     "Save the final outbound request body for this channel in root-visible usage logs. Sensitive data may be included.": "Save the final outbound request body for this channel in root-visible usage logs. Sensitive data may be included.",
-    "Record Request Body": "Record Request Body"
+    "Log Request Body": "Log Request Body",
+    "Record outbound request body in usage and error logs for this channel": "Record outbound request body in usage and error logs for this channel"
   }
 }
