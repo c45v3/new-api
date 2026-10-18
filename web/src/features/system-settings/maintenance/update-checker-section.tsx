@@ -56,13 +56,7 @@ export function UpdateCheckerSection(props: UpdateCheckerSectionProps) {
             <div className='text-muted-foreground text-sm'>
               {t('Current version')}
             </div>
-            <div className='text-lg font-semibold break-all'>{version}</div>
-          </div>
-          {hasCommit && (
-            <div className='rounded-lg border p-4'>
-              <div className='text-muted-foreground text-sm'>
-                {t('Git Commit')}
-              </div>
+            {hasCommit ? (
               <a
                 href={`https://github.com/c45v3/new-api/commit/${gitCommit}`}
                 target='_blank'
@@ -73,8 +67,10 @@ export function UpdateCheckerSection(props: UpdateCheckerSectionProps) {
                 <span className='font-mono break-all'>{commitLabel}</span>
                 <ExternalLinkIcon className='h-4 w-4 shrink-0' />
               </a>
-            </div>
-          )}
+            ) : (
+              <div className='text-lg font-semibold break-all'>{version}</div>
+            )}
+          </div>
           {buildLabel && (
             <div className='rounded-lg border p-4'>
               <div className='text-muted-foreground text-sm'>{t('Build time')}</div>
