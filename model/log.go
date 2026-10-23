@@ -391,17 +391,26 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		if tokenUsed <= 0 {
 			tokenUsed = params.PromptTokens + params.CompletionTokens
 		}
+		var cacheReadTokens, cacheCreationTokens int
+		if other != nil {
+			cacheReadTokens, _ = other.public["cache_tokens"].(int)
+			// The settlement path already normalizes the cache creation total.
+			// Do not add the 5m/1h breakdown again or infer tokens from prices.
+			cacheCreationTokens, _ = other.public["cache_write_tokens"].(int)
+		}
 		LogQuotaData(QuotaDataLogParams{
-			UserID:    userId,
-			Username:  username,
-			ModelName: params.ModelName,
-			Quota:     params.Quota,
-			CreatedAt: createdAt,
-			TokenUsed: tokenUsed,
-			UseGroup:  params.Group,
-			TokenID:   params.TokenId,
-			ChannelID: params.ChannelId,
-			NodeName:  common.NodeName,
+			UserID:              userId,
+			Username:            username,
+			ModelName:           params.ModelName,
+			Quota:               params.Quota,
+			CreatedAt:           createdAt,
+			TokenUsed:           tokenUsed,
+			CacheReadTokens:     int64(cacheReadTokens),
+			CacheCreationTokens: int64(cacheCreationTokens),
+			UseGroup:            params.Group,
+			TokenID:             params.TokenId,
+			ChannelID:           params.ChannelId,
+			NodeName:            common.NodeName,
 		})
 	}
 }

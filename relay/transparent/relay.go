@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -198,10 +199,11 @@ func Relay(c *gin.Context) {
 	c.Status(response.StatusCode)
 	c.Writer.WriteHeaderNow()
 	buffer := make([]byte, 32*1024)
+	var writeBudget helper.StreamWriteBudget
 	for {
 		n, readErr := response.Body.Read(buffer)
 		if n > 0 {
-			helper.ExtendWriteDeadline(c)
+			_ = http.NewResponseController(c.Writer).SetWriteDeadline(writeBudget.Deadline(time.Now(), n))
 			if _, writeErr := c.Writer.Write(buffer[:n]); writeErr != nil {
 				return
 			}

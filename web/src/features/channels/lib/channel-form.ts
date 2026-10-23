@@ -748,9 +748,7 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     proxy: formData.proxy?.trim() || '',
     transparent_relay: formData.transparent_relay === true,
     transparent_billing: formData.transparent_billing || '',
-    pass_through_body_enabled:
-      formData.type !== CHANNEL_TYPE_ADVANCED_CUSTOM &&
-      formData.pass_through_body_enabled === true,
+    pass_through_body_enabled: formData.pass_through_body_enabled === true,
     responses_websocket_enabled:
       supportsResponsesWebSocket(formData.type) &&
       formData.responses_websocket_enabled === true,
@@ -775,6 +773,7 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
   } else if (shards > 1) {
     settingObj.http2_connection_shards = shards
   }
+  delete settingObj.tls_insecure_skip_verify
   if (formData.tls_insecure_skip_verify === true) {
     settingObj.tls_insecure_skip_verify = true
   }
