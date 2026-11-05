@@ -15,12 +15,21 @@ import (
 
 type readCloser struct {
 	io.Reader
+	openFn    func() (io.Reader, error)
+	openErr   error
 	closeFn   func() error
 	closeOnce sync.Once
 	closeErr  error
 }
 
 func (rc *readCloser) Read(p []byte) (int, error) {
+	if rc.openFn != nil {
+		rc.Reader, rc.openErr = rc.openFn()
+		rc.openFn = nil
+	}
+	if rc.openErr != nil {
+		return 0, rc.openErr
+	}
 	if rc.Reader == nil {
 		return 0, io.ErrClosedPipe
 	}
@@ -35,6 +44,7 @@ func (rc *readCloser) Close() error {
 		// The deferred Close retains this wrapper until the request ends. Do not
 		// retain decoder buffers or the original compressed reader with it.
 		rc.Reader = nil
+		rc.openFn = nil
 		rc.closeFn = nil
 	})
 	return rc.closeErr
@@ -60,23 +70,43 @@ func DecompressRequestMiddleware() gin.HandlerFunc {
 		encoding := c.GetHeader("Content-Encoding")
 		switch encoding {
 		case "gzip", "br", "zstd":
-			storage, err := common.CreateBodyStorageFromReader(origBody, c.Request.ContentLength, maxBytes)
-			_ = origBody.Close()
-			if err != nil {
-				status := http.StatusBadRequest
-				if common.IsRequestBodyTooLargeError(err) {
-					status = http.StatusRequestEntityTooLarge
-				}
-				c.AbortWithStatus(status)
-				return
-			}
 			defer common.ReleaseOriginalBodyStorage(c)
-			c.Set(common.KeyOriginalBodyStorage, storage)
-			c.Set(common.KeyOriginalContentEncoding, encoding)
-			origBody, err = storage.NewReader()
-			if err != nil {
-				c.AbortWithStatus(http.StatusInternalServerError)
-				return
+			wireBody := origBody
+			wireLength := c.Request.ContentLength
+			storageStatus := http.StatusBadRequest
+			storedBody := &readCloser{closeFn: wireBody.Close}
+			// Retain the exact wire representation on first consumption, not
+			// before authentication has had a chance to reject a zstd request.
+			storedBody.openFn = func() (io.Reader, error) {
+				storage, err := common.CreateBodyStorageFromReader(wireBody, wireLength, maxBytes)
+				_ = wireBody.Close()
+				storedBody.closeFn = nil
+				if err != nil {
+					return nil, err
+				}
+				c.Set(common.KeyOriginalBodyStorage, storage)
+				c.Set(common.KeyOriginalContentEncoding, encoding)
+				reader, err := storage.NewReader()
+				if err != nil {
+					storageStatus = http.StatusInternalServerError
+					return nil, err
+				}
+				storedBody.closeFn = reader.Close
+				return reader, nil
+			}
+			origBody = storedBody
+			if encoding != "zstd" {
+				// Preserve the existing eager storage/error behavior for gzip
+				// (which also validates its header eagerly) and brotli.
+				storedBody.Reader, storedBody.openErr = storedBody.openFn()
+				storedBody.openFn = nil
+				if storedBody.openErr != nil {
+					if common.IsRequestBodyTooLargeError(storedBody.openErr) {
+						storageStatus = http.StatusRequestEntityTooLarge
+					}
+					c.AbortWithStatus(storageStatus)
+					return
+				}
 			}
 		default:
 			// Keep uncompressed requests streaming without an extra storage copy.
@@ -110,7 +140,17 @@ func DecompressRequestMiddleware() gin.HandlerFunc {
 				},
 			})
 		case "zstd":
-			reader, err := zstd.NewReader(origBody)
+			// The frame header sets the decoder's window, and the decoder allocates
+			// it before any output exists, so the output limit below does not bound
+			// it. 8MiB is the window RFC 8878 asks encoders to stay within.
+			// In streaming mode MaxMemory also caps the window at the request limit.
+			// Disable async decoding to avoid reading the body before downstream
+			// middleware (including authentication) decides to consume it.
+			reader, err := zstd.NewReader(origBody,
+				zstd.WithDecoderMaxWindow(8<<20),
+				zstd.WithDecoderMaxMemory(uint64(maxBytes)),
+				zstd.WithDecoderConcurrency(1),
+			)
 			if err != nil {
 				_ = origBody.Close()
 				c.AbortWithStatus(http.StatusBadRequest)

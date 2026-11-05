@@ -302,6 +302,12 @@ Read [AGENTS.md](./AGENTS.md) before contributing. Run checks appropriate to you
 
 For bug reports, include the version, deployment method, reproduction steps, and redacted logs. Documentation, translations, provider integrations, and focused regression tests are all welcome contributions.
 
+### Fork integration notes
+
+This fork integrates upstream `v1.0.0-rc.48` while retaining its reasoning-effort logging and transparent relay behavior. Server-wide panic recovery uses the rotation-aware log writer and preserves `http.ErrAbortHandler`, so aborted streams are not replaced with JSON errors. Zstd requests capture their compressed body only when consumed, allowing early rejection without reading the body while preserving the exact wire bytes for transparent forwarding.
+
+Upstream-address masking also covers single-label hostnames in DNS errors, and its proxy regression coverage does not require external DNS or proxy access.
+
 ---
 
 ## 🔗 Related Projects

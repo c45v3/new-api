@@ -50,6 +50,24 @@ func TestMaskSensitiveInfoMasksOnlyTheUpstreamAddress(t *testing.T) {
 			want:         `failed to download https://cdn.example/image(1).png?token=*** (status 403)`,
 		},
 		{
+			name:         "trailing parenthesis stays outside the masked URL",
+			upstreamURLs: nil,
+			input:        `(see https://cdn.example/a?sig)`,
+			want:         `(see https://cdn.example/a?sig=***)`,
+		},
+		{
+			name:         "mixed trailing punctuation and parentheses are trimmed together",
+			upstreamURLs: nil,
+			input:        `(https://cdn.example/a?token=1&sig). ('https://cdn.example/a?sig') (https://cdn.example/a?sig.)`,
+			want:         `(https://cdn.example/a?sig=***&token=***). ('https://cdn.example/a?sig=***') (https://cdn.example/a?sig=***.)`,
+		},
+		{
+			name:         "trailing parentheses on an upstream URL",
+			upstreamURLs: []string{"https://wiki.upstream.example.com"},
+			input:        `(see https://wiki.upstream.example.com/Go_(lang)?k=v)).`,
+			want:         `(see https://***.com/***?k=***)).`,
+		},
+		{
 			name:         "apostrophes inside a URL keep its query and userinfo masked",
 			upstreamURLs: nil,
 			input:        `failed to download https://cdn.example/John's-photo.png?token=secret from 'https://o'neil:pw@cdn.example/a?sig=1'`,
@@ -78,6 +96,12 @@ func TestMaskSensitiveInfoMasksOnlyTheUpstreamAddress(t *testing.T) {
 			upstreamURLs: []string{"https://API.Upstream.example.com"},
 			input:        `dial tcp: lookup api.upstream.example.com: no such host`,
 			want:         `dial tcp: lookup ***.***.***.com: no such host`,
+		},
+		{
+			name:         "single-label upstream host in a DNS error",
+			upstreamURLs: []string{"http://private-upstream:8080"},
+			input:        `dial tcp: lookup private-upstream: no such host; lookup unrelated: no such host`,
+			want:         `dial tcp: lookup ***: no such host; lookup unrelated: no such host`,
 		},
 		{
 			name:         "fully qualified base URL with a trailing dot",
