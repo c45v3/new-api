@@ -78,6 +78,7 @@ import { DetailsDialog } from '../dialogs/details-dialog'
 import { LogCostDisplay } from '../log-cost-display'
 import { ModelBadge } from '../model-badge'
 import { ReasoningEffortBadge } from '../reasoning-effort-badge'
+import { RequestPluginLogMarker } from '../request-plugin-record'
 import { TimingMetricsCell, StreamTpsCell } from '../timing-metrics-cell'
 import { useUsageLogsContext } from '../usage-logs-provider'
 
@@ -688,6 +689,7 @@ export function useCommonLogsColumns(
 
           const other = parseLogOther(log.other)
           const modelInfo = formatModelName(log)
+          const requestPlugins = other?.request_plugins
 
           return (
             <div className='flex w-fit flex-col gap-0.5'>
@@ -697,6 +699,9 @@ export function useCommonLogsColumns(
                 responseModel={modelInfo.responseModel}
               />
               <ReasoningEffortBadge effort={other?.reasoning_effort} compact />
+              {requestPlugins?.length ? (
+                <RequestPluginLogMarker items={requestPlugins} />
+              ) : null}
             </div>
           )
         },
